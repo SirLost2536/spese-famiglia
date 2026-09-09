@@ -244,8 +244,7 @@ function rDash(el){
   const needsSetup=D.cat.length===0&&D.catE.length===0;
   const allVoci=[
     ...D.spese.map(x=>({...x,_t:'s'})),
-    ...D.entrate.map(x=>({...x,_t:'e'})),
-    ...D.trasf.map(x=>({...x,_t:'t'}))
+    ...D.entrate.map(x=>({...x,_t:'e'}))
   ].sort((a,b)=>b.data.localeCompare(a.data));
 
   el.innerHTML=
@@ -261,7 +260,7 @@ function rDash(el){
   '<div class="tab-row">'+
   '<button class="tab '+(formTab==='spesa'?'act-s':'')+'" onclick="formTab=\'spesa\';go(\'dash\')">➖ Uscita</button>'+
   '<button class="tab '+(formTab==='entrata'?'act-e':'')+'" onclick="formTab=\'entrata\';go(\'dash\')">➕ Entrata</button>'+
-  '<button class="tab '+(formTab==='trasf'?'act-t':'')+'" onclick="formTab=\'trasf\';go(\'dash\')">⇄ Trasferimento</button>'+
+  '<button class="tab '+(formTab==='risp'?'act-b':'')+'" onclick="formTab=\'risp\';go(\'dash\')">💰 Risparmio</button>'+
   '</div>'+
   (formTab==='spesa'?
     '<div class="fgrid">'+
@@ -285,21 +284,22 @@ function rDash(el){
     '<div class="fg"><label>Conto</label><select id="e-co"><option value="">— nessuno —</option>'+D.conti.map(c=>'<option value="'+c.id+'">'+c.nome+'</option>').join('')+'</select></div>'+
     '<div class="fg"><label>Descrizione</label><input type="text" id="e-de" placeholder="es. Stipendio luglio…"></div>'+
     '</div><div style="margin-top:12px"><button class="btn btn-g" onclick="addE()">Salva entrata</button></div>'
-  :'')+(formTab==='trasf'?
+  :'')+(formTab==='risp'?
     '<div class="fgrid">'+
-    '<div class="fg"><label>Data</label><input type="date" id="t-d" value="'+today()+'"></div>'+
-    '<div class="fg"><label>Importo €</label><input type="number" id="t-i" placeholder="0.00" step="0.01" min="0"></div>'+
-    '<div class="fg"><label>Da conto</label><select id="t-da"><option value="">— seleziona —</option>'+D.conti.map(c=>'<option value="'+c.id+'">'+c.nome+'</option>').join('')+'</select></div>'+
-    '<div class="fg"><label>A conto</label><select id="t-a"><option value="">— seleziona —</option>'+D.conti.map(c=>'<option value="'+c.id+'">'+c.nome+'</option>').join('')+'</select></div>'+
-    '<div class="fg" style="grid-column:1/-1"><label>Note</label><input type="text" id="t-n" placeholder="es. Accantonamento mensile…"></div>'+
-    '</div><div style="margin-top:12px"><button class="btn" style="background:#ede9fe;color:#7c3aed" onclick="addT()">Salva trasferimento</button></div>'
+    '<div class="fg"><label>Data</label><input type="date" id="r-d" value="'+today()+'"></div>'+
+    '<div class="fg"><label>Importo €</label><input type="number" id="r-i" placeholder="0.00" step="0.01" min="0"></div>'+
+    '<div class="fg"><label>Conto deposito</label><select id="r-c">'+
+    (D.conti.filter(c=>c.tipo==='risparmio').length===0?'<option value="">— nessun conto deposito —</option>':
+    D.conti.filter(c=>c.tipo==='risparmio').map(c=>'<option value="'+c.id+'" data-nome="'+c.nome+'">'+c.nome+'</option>').join(''))+
+    '</select></div>'+
+    '<div class="fg"><label>Descrizione</label><input type="text" id="r-de" placeholder="es. Accantonamento mensile…"></div>'+
+    '</div><div style="margin-top:12px"><button class="btn" style="background:#dbeafe;color:#1d4ed8;font-weight:600" onclick="addRispDash()">💰 Salva risparmio</button></div>'
   :'')+
   '</div>'+
   '<div class="elist">'+
   '<div class="elist-h"><h3>Movimenti '+MESI[cm]+' '+cy+'</h3><span style="font-size:12px;color:var(--muted)">'+allVoci.length+' voci</span></div>'+
   (allVoci.length===0?'<div class="empty">Nessun movimento registrato</div>':
     allVoci.map(s=>{
-      if(s._t==='t')return'<div class="ei"><div style="font-size:16px;flex-shrink:0">⇄</div><div class="ei-info"><div class="d">'+s.daContoNome+' → '+s.aContoNome+'</div><div class="m">'+fdate(s.data)+(s.note?' · '+s.note:'')+'</div></div><div class="ei-amt p">'+fmt(s.importo)+'</div><button class="del-btn" onclick="delT(\''+s.id+'\')">✕</button></div>';
       const isE=s._t==='e';
       return'<div class="ei"><div class="dot" style="background:'+(s.categoriaColore||'#94a3b8')+'"></div><div class="ei-info"><div class="d">'+(s.descrizione||s.sottocategoria||s.categoriaNome||'Movimento')+'</div><div class="m">'+fdate(s.data)+' · '+(s.categoriaIcona||'')+' '+(s.categoriaNome||'')+(s.sottocategoria?' › '+s.sottocategoria:'')+(s.contoNome?' · '+s.contoNome:'')+'</div></div><div class="ei-amt '+(isE?'g':'r')+'">'+(isE?'+':'-')+fmt(s.importo)+'</div><button class="del-btn" onclick="'+(isE?'delE(\''+s.id+'\')':'delS(\''+s.id+'\')')+'">✕</button></div>';
     }).join(''))+
@@ -442,51 +442,42 @@ function rGrafConfronto(el){
 
 /* CONTI */
 function rCont(el){
+  const rispC=D.conti.filter(c=>c.tipo==='risparmio');
   el.innerHTML=
-  '<div class="mbar"><button class="ico-btn" onclick="chM(-1)">◀</button><h2>Conti · '+MESI[cm]+' '+cy+'</h2><button class="ico-btn" onclick="chM(1)">▶</button></div>'+
-  '<div class="congrid">'+
-  (D.conti.length===0?'<p style="color:var(--muted);font-size:13px">Nessun conto. Aggiungine uno qui sotto.</p>':
-  D.conti.map(c=>{
-    const risp=D.risp.find(r=>r.contoId===c.id);
-    const spM=D.spese.filter(s=>s.contoId===c.id).reduce((s,x)=>s+parseFloat(x.importo),0);
-    const enM=D.entrate.filter(s=>s.contoId===c.id).reduce((s,x)=>s+parseFloat(x.importo),0);
-    return '<div class="concard">'+
-      '<div class="tipo">'+c.tipo+'</div>'+
-      '<div class="nome" style="color:'+(c.colore||'#3b82f6')+'">'+c.nome+'</div>'+
-      (c.tipo==='risparmio'?
-        '<div style="font-size:11px;color:var(--muted)">Accantonato '+MESI[cm]+':</div>'+
-        '<div style="font-size:22px;font-weight:700;color:var(--green);margin:4px 0">'+(risp?fmt(risp.importo):'€ 0,00')+'</div>'+
-        '<div class="risp-row"><input type="number" id="ri-'+c.id+'" placeholder="Importo" step="0.01" value="'+(risp?risp.importo:'')+'"><button class="btn btn-g btn-sm" onclick="saveR(\''+c.id+'\',\''+(risp?.id||'')+'\')">Salva</button></div>'
-        :
-        '<div style="display:flex;gap:14px;margin-bottom:6px">'+
-        '<div><div style="font-size:10px;color:var(--muted)">Entrate</div><div style="font-size:16px;font-weight:600;color:var(--green)">'+fmt(enM)+'</div></div>'+
-        '<div><div style="font-size:10px;color:var(--muted)">Uscite</div><div style="font-size:16px;font-weight:600;color:var(--red)">'+fmt(spM)+'</div></div>'+
-        '</div>')+
-      '<div style="margin-top:10px"><button class="btn btn-d btn-sm" onclick="delC(\''+c.id+'\')">Elimina</button></div>'+
-      '</div>';
-  }).join(''))+
-  '</div>'+
+  '<div class="mbar"><button class="ico-btn" onclick="chM(-1)">◀</button><h2>💰 Conti Deposito · '+MESI[cm]+' '+cy+'</h2><button class="ico-btn" onclick="chM(1)">▶</button></div>'+
+  (rispC.length===0?
+    '<div class="fcard" style="text-align:center;padding:32px"><p style="font-size:13px;color:var(--muted)">Nessun conto deposito. Aggiungine uno qui sotto.</p></div>'
+    :
+    '<div class="congrid">'+
+    rispC.map(c=>{
+      const risp=D.risp.find(r=>r.contoId===c.id);
+      return '<div class="concard">'+
+        '<div class="tipo">Conto deposito</div>'+
+        '<div class="nome" style="color:'+(c.colore||'#5856D6')+'">'+c.nome+'</div>'+
+        '<div style="font-size:11px;color:var(--muted);margin-bottom:2px">Accantonato '+MESI[cm]+'</div>'+
+        '<div style="font-size:26px;font-weight:700;color:var(--green);margin-bottom:10px">'+(risp?fmt(risp.importo):'€ 0,00')+'</div>'+
+        '<div class="risp-row"><input type="number" id="ri-'+c.id+'" placeholder="Importo" step="0.01" value="'+(risp?risp.importo:'')+'"><button class="btn btn-g btn-sm" onclick="saveR(\''+c.id+'\',\''+(risp?.id||'')+'\')">Salva</button></div>'+
+        '<div style="margin-top:10px"><button class="btn btn-d btn-sm" onclick="delC(\''+c.id+'\')">Elimina conto</button></div>'+
+        '</div>';
+    }).join('')+
+    '</div>'
+  )+
   '<div class="fcard">'+
-  '<h3>Aggiungi conto</h3>'+
+  '<h3 style="margin-bottom:12px">➕ Aggiungi conto deposito</h3>'+
   '<div class="fgrid">'+
-  '<div class="fg"><label>Nome</label><input id="nc-n" placeholder="es. Conto BancaXY"></div>'+
-  '<div class="fg"><label>Tipo</label><select id="nc-t"><option value="corrente">Conto corrente</option><option value="risparmio">Conto risparmio/deposito</option><option value="contanti">Contanti</option></select></div>'+
-  '<div class="fg"><label>Colore</label><input type="color" id="nc-c" value="#3b82f6"></div>'+
+  '<div class="fg"><label>Nome</label><input id="nc-n" placeholder="es. Conto Buddies"></div>'+
+  '<div class="fg"><label>Colore</label><input type="color" id="nc-c" value="#5856D6"></div>'+
   '</div>'+
-  '<div style="margin-top:12px"><button class="btn btn-p" onclick="addC()">Aggiungi conto</button></div>'+
+  '<div style="margin-top:12px"><button class="btn btn-p" onclick="addCDeposito()">Aggiungi</button></div>'+
   '</div>'+
-  (D.trasf.length>0?
-  '<div class="elist" style="margin-bottom:20px">'+
-  '<div class="elist-h"><h3>⇄ Trasferimenti '+MESI[cm]+' '+cy+'</h3></div>'+
-  D.trasf.map(t=>'<div class="trasf-row"><span style="font-size:12px;color:var(--muted);width:36px;flex-shrink:0">'+fdate(t.data)+'</span><span style="color:var(--purple);font-size:16px">⇄</span><span style="flex:1">'+t.daContoNome+' → '+t.aContoNome+(t.note?' · <span style="color:var(--muted)">'+t.note+'</span>':'')+'</span><span style="font-weight:600;color:var(--purple)">'+fmt(t.importo)+'</span><button class="del-btn" onclick="delT(\''+t.id+'\')">✕</button></div>').join('')+
-  '</div>':'')+
   '<div class="fcard">'+
   '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'+
   '<h3>📈 Andamento conti deposito</h3>'+
-  '<button class="btn btn-p btn-sm" onclick="loadRispTrend()">Carica storico</button>'+
+  '<button class="btn btn-p btn-sm" onclick="loadRispTrend()">↺ Aggiorna</button>'+
   '</div>'+
-  '<div id="risp-trend"><div style="font-size:13px;color:var(--muted)">Clicca <b>Carica storico</b> per vedere l\'evoluzione mensile dei tuoi conti deposito.</div></div>'+
+  '<div id="risp-trend"><div class="spin">Caricamento storico…</div></div>'+
   '</div>';
+  loadRispTrend();
 }
 
 async function loadRispTrend(){
@@ -680,6 +671,36 @@ async function addT(){
 async function delS(id){if(!confirm('Eliminare questa uscita?'))return;await db.collection('spese').doc(id).delete();await load();go(page)}
 async function delE(id){if(!confirm('Eliminare questa entrata?'))return;await db.collection('entrate').doc(id).delete();await load();go(page)}
 async function delT(id){if(!confirm('Eliminare questo trasferimento?'))return;await db.collection('trasferimenti').doc(id).delete();await load();go(page)}
+
+async function addRispDash(){
+  const dv=document.getElementById('r-d').value;
+  const imp=parseFloat(document.getElementById('r-i').value);
+  const sel=document.getElementById('r-c');
+  const contoId=sel?.value;
+  const contoNome=sel?.options[sel.selectedIndex]?.dataset?.nome||'';
+  if(!dv||!imp||imp<=0){toast('Inserisci data e importo');return}
+  if(!contoId){toast('Seleziona un conto deposito');return}
+  const dt=new Date(dv);
+  const y=dt.getFullYear(),m=dt.getMonth()+1;
+  const ex=await db.collection('risparmi').where('contoId','==',contoId).where('anno','==',y).where('mese','==',m).get();
+  if(!ex.empty){
+    await db.collection('risparmi').doc(ex.docs[0].id).update({importo:imp,data:dv});
+    toast('Risparmio aggiornato!');
+  } else {
+    await db.collection('risparmi').add({data:dv,importo:imp,contoId,contoNome,anno:y,mese:m});
+    toast('Risparmio salvato!');
+  }
+  document.getElementById('r-i').value='';
+  await load();go('dash');
+}
+
+async function addCDeposito(){
+  const n=document.getElementById('nc-n').value.trim();
+  if(!n){toast('Inserisci nome conto');return}
+  const col=document.getElementById('nc-c').value;
+  await db.collection('conti').add({nome:n,tipo:'risparmio',colore:col});
+  toast('Conto deposito aggiunto!');await load();go('cont');
+}
 
 async function addC(){
   const n=document.getElementById('nc-n').value.trim();
