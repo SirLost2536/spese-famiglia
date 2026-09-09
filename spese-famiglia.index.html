@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>💰 Spese Famiglia</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#f1f5f9;--card:#fff;--border:#e2e8f0;--text:#1e293b;--muted:#64748b;--primary:#3b82f6;--primary-d:#2563eb;--green:#10b981;--red:#ef4444}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+nav{background:var(--card);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;position:sticky;top:0;z-index:100;overflow-x:auto}
+.logo{font-weight:700;font-size:17px;padding:14px 0;margin-right:20px;white-space:nowrap;flex-shrink:0}
+nav a{padding:14px 10px;font-size:13px;font-weight:500;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;flex-shrink:0}
+nav a.active{color:var(--primary);border-bottom-color:var(--primary)}
+nav a:hover{color:var(--text)}
+main{max-width:920px;margin:0 auto;padding:24px 16px}
+.mbar{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+.mbar h2{flex:1;font-size:19px;font-weight:700}
+.ico-btn{background:var(--card);border:1px solid var(--border);border-radius:8px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;flex-shrink:0}
+.ico-btn:hover{background:var(--bg)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px}
+.card{background:var(--card);border-radius:12px;padding:18px;border:1px solid var(--border)}
+.card .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.card .val{font-size:26px;font-weight:700;line-height:1}
+.card .val.r{color:var(--red)}.card .val.g{color:var(--green)}
+.card .sub{font-size:11px;color:var(--muted);margin-top:5px}
+.fcard{background:var(--card);border-radius:12px;padding:18px;border:1px solid var(--border);margin-bottom:20px}
+.fcard h3{font-size:15px;font-weight:600;margin-bottom:14px}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.fg{display:flex;flex-direction:column;gap:3px}
+.fg label{font-size:11px;font-weight:500;color:var(--muted)}
+input,select,textarea{padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--bg);color:var(--text);outline:none;width:100%}
+input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 2px rgba(59,130,246,.15)}
+.btn{padding:9px 18px;border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all .15s}
+.btn-p{background:var(--primary);color:#fff}.btn-p:hover{background:var(--primary-d)}
+.btn-d{background:#fee2e2;color:var(--red)}.btn-d:hover{background:#fecaca}
+.btn-g{background:#dcfce7;color:var(--green)}.btn-g:hover{background:#bbf7d0}
+.btn-o{background:#fff7ed;color:#c2410c}.btn-o:hover{background:#fed7aa}
+.btn-sm{padding:5px 10px;font-size:12px}
+.elist{background:var(--card);border-radius:12px;border:1px solid var(--border);overflow:hidden;margin-bottom:20px}
+.elist-h{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.elist-h h3{font-size:15px;font-weight:600}
+.ei{padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.ei:last-child{border-bottom:none}
+.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.ei-info{flex:1;min-width:0}
+.ei-info .d{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ei-info .m{font-size:11px;color:var(--muted);margin-top:1px}
+.ei-amt{font-size:15px;font-weight:600;color:var(--red);flex-shrink:0}
+.del-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:14px;padding:4px;opacity:.5;flex-shrink:0}
+.del-btn:hover{opacity:1;color:var(--red)}
+.empty{padding:36px;text-align:center;color:var(--muted);font-size:13px}
+.cgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:580px){.cgrid{grid-template-columns:1fr}}
+.cc{background:var(--card);border-radius:12px;border:1px solid var(--border);padding:18px}
+.cc h3{font-size:14px;font-weight:600;margin-bottom:14px}
+.congrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:20px}
+.concard{background:var(--card);border-radius:12px;border:1px solid var(--border);padding:18px}
+.concard .tipo{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:3px}
+.concard .nome{font-size:17px;font-weight:700;margin-bottom:12px}
+.risp-row{display:flex;gap:6px;margin-top:10px}
+.risp-row input{flex:1}
+.cat-block{border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden}
+.cat-head{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg);cursor:pointer}
+.cat-head .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.cat-head .cn{flex:1;font-size:13px;font-weight:600}
+.cat-head .arr{font-size:11px;color:var(--muted)}
+.subcat-list{padding:8px 14px 12px}
+.subcat-tag{display:inline-flex;align-items:center;gap:4px;background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:12px;margin:3px}
+.subcat-tag button{background:none;border:none;cursor:pointer;color:var(--muted);font-size:11px;padding:0 2px}
+.subcat-tag button:hover{color:var(--red)}
+.add-sub{display:flex;gap:6px;margin-top:8px}
+.add-sub input{flex:1}
+#toast{position:fixed;bottom:20px;right:20px;background:#1e293b;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:9999}
+#toast.show{opacity:1}
+.spin{text-align:center;padding:40px;color:var(--muted);font-size:13px}
+.banner{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:13px;color:#1d4ed8;display:flex;align-items:center;gap:10px}
+</style>
+</head>
+<body>
+<nav>
+  <span class="logo">💰 Del Bello's Family</span>
+  <a id="n-dash" class="active" onclick="go('dash')">Dashboard</a>
+  <a id="n-graf" onclick="go('graf')">Grafici</a>
+  <a id="n-cont" onclick="go('cont')">Conti</a>
+  <a id="n-sett" onclick="go('sett')">⚙️ Impostazioni</a>
+</nav>
+<main id="main"><div class="spin">Caricamento…</div></main>
+<div id="toast"></div>
+
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyA8-8tBLfBcR--EVwm1TbjnPN1-IW8veSU",
+  authDomain:"del-bello-s-family.firebaseapp.com",
+  projectId:"del-bello-s-family",
+  storageBucket:"del-bello-s-family.firebasestorage.app",
+  messagingSenderId:"654736108934",
+  appId:"1:654736108934:web:66998c037aa2186cf29007"
+});
+const db=firebase.firestore();
+
+// ── DATI PREDEFINITI ────────────────────────────────────────
+const DATI_DEFAULT=[
+  {nome:'Casa',icona:'🏠',colore:'#ef4444',sottocategorie:['Affitto/Mutuo','Condominio','Manutenzione','Arredamento','Pulizie','Giardinaggio']},
+  {nome:'Bollette & Utenze',icona:'💡',colore:'#f97316',sottocategorie:['Luce/Energia','Gas','Acqua','Internet','Telefono fisso']},
+  {nome:'Spesa & Alimentari',icona:'🛒',colore:'#84cc16',sottocategorie:['Supermercato','Mercato','Macelleria','Pescheria','Panetteria','Bio/Organico']},
+  {nome:'Auto & Trasporti',icona:'🚗',colore:'#f59e0b',sottocategorie:['Carburante','Assicurazione','Bollo','Manutenzione/Revisione','Parcheggio','Pedaggi/Autostrada','Mezzi pubblici']},
+  {nome:'Salute & Farmacia',icona:'💊',colore:'#06b6d4',sottocategorie:['Farmacia','Medico di base','Specialista','Dentista','Occhiali/Vista','Esami/Analisi','Palestra']},
+  {nome:'Svago & Ristoranti',icona:'🎉',colore:'#8b5cf6',sottocategorie:['Ristorante','Bar/Caffè','Cinema/Teatro','Sport','Hobby','Giochi/Giocattoli','Libri/Riviste']},
+  {nome:'Abbigliamento',icona:'👕',colore:'#ec4899',sottocategorie:['Adulti','Bambini/Ragazzi','Scarpe','Accessori','Lavanderia']},
+  {nome:'Abbonamenti & Tech',icona:'📱',colore:'#3b82f6',sottocategorie:['Cellulare','Netflix/Streaming','Spotify/Musica','Software/App','Amazon Prime','Palinsesto TV']},
+  {nome:'Istruzione & Figli',icona:'📚',colore:'#10b981',sottocategorie:['Tasse scolastiche','Libri/Materiale','Doposcuola/Ripetizioni','Corsi/Attività','Mensa scolastica','Gite scolastiche']},
+  {nome:'Vacanze & Viaggi',icona:'✈️',colore:'#14b8a6',sottocategorie:['Hotel/B&B','Voli/Treni','Escursioni','Ristoranti in viaggio','Souvenir']},
+  {nome:'Regali & Donazioni',icona:'🎁',colore:'#a855f7',sottocategorie:['Regali famiglia','Regali amici','Beneficenza','Ricorrenze']},
+  {nome:'Varie & Imprevisti',icona:'📦',colore:'#6b7280',sottocategorie:['Spese impreviste','Commissioni','Postale/Spedizioni','Altro']},
+];
+
+const MESI=['','Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+let page='dash',cm=new Date().getMonth()+1,cy=new Date().getFullYear();
+let D={spese:[],conti:[],cat:[],risp:[]};
+let charts={};
+let openCat=null;
+
+async function load(){
+  const [spSnap,coSnap,caSnap,riSnap]=await Promise.all([
+    db.collection('spese').where('mese','==',cm).where('anno','==',cy).get(),
+    db.collection('conti').orderBy('nome').get(),
+    db.collection('categorie').orderBy('nome').get(),
+    db.collection('risparmi').where('mese','==',cm).where('anno','==',cy).get()
+  ]);
+  D.spese=spSnap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>b.data.localeCompare(a.data));
+  D.conti=coSnap.docs.map(d=>({id:d.id,...d.data()}));
+  D.cat=caSnap.docs.map(d=>({id:d.id,...d.data()}));
+  D.risp=riSnap.docs.map(d=>({id:d.id,...d.data()}));
+}
+
+async function caricaDatiDefault(){
+  if(!confirm('Questo caricherà le categorie predefinite per una famiglia italiana. Continuare?'))return;
+  const batch=db.batch();
+  for(const c of DATI_DEFAULT){
+    const ref=db.collection('categorie').doc();
+    batch.set(ref,{nome:c.nome,icona:c.icona,colore:c.colore,sottocategorie:c.sottocategorie});
+  }
+  await batch.commit();
+  toast('Categorie caricate ✓');await load();go('sett');
+}
+
+function go(p){
+  page=p;
+  document.querySelectorAll('nav a').forEach(a=>a.classList.remove('active'));
+  const el=document.getElementById('n-'+p);if(el)el.classList.add('active');
+  const m=document.getElementById('main');
+  if(p==='dash')rDash(m);
+  else if(p==='graf')rGraf(m);
+  else if(p==='cont')rCont(m);
+  else if(p==='sett')rSett(m);
+}
+
+function getSottocategorie(catId){
+  const c=D.cat.find(x=>x.id===catId);
+  return c?.sottocategorie||[];
+}
+
+function updateSubcat(){
+  const catId=document.getElementById('f-c')?.value;
+  const sub=document.getElementById('f-s');
+  if(!sub)return;
+  const subs=getSottocategorie(catId);
+  sub.innerHTML=`<option value="">— nessuna —</option>`+subs.map(s=>`<option value="${s}">${s}</option>`).join('');
+}
+
+/* ── DASHBOARD ── */
+function rDash(el){
+  const totS=D.spese.reduce((s,x)=>s+parseFloat(x.importo),0);
+  const totR=D.risp.reduce((s,x)=>s+parseFloat(x.importo),0);
+  const byCat={};
+  D.spese.forEach(x=>{const n=x.categoriaNome||'Varie';byCat[n]=(byCat[n]||0)+parseFloat(x.importo)});
+  const top=Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k,v])=>`${k} ${fmt(v)}`).join(' · ');
+
+  const needsSetup=D.cat.length===0;
+
+  el.innerHTML=`
+  ${needsSetup?`<div class="banner">💡 <span>Prima di iniziare vai su <b>⚙️ Impostazioni</b> e clicca <b>"Carica categorie predefinite"</b> per impostare tutto in automatico.</span></div>`:''}
+  <div class="mbar">
+    <button class="ico-btn" onclick="chM(-1)">◀</button>
+    <h2>${MESI[cm]} ${cy}</h2>
+    <button class="ico-btn" onclick="chM(1)">▶</button>
+  </div>
+  <div class="cards">
+    <div class="card"><div class="lbl">Spese del mese</div><div class="val r">${fmt(totS)}</div><div class="sub">${D.spese.length} voci · ${top||'nessuna spesa'}</div></div>
+    <div class="card"><div class="lbl">Risparmi del mese</div><div class="val g">${fmt(totR)}</div><div class="sub">${D.risp.length} conto/i</div></div>
+    <div class="card"><div class="lbl">Bilancio</div><div class="val ${totR-totS>=0?'g':'r'}">${fmt(totR-totS)}</div><div class="sub">risparmi − spese</div></div>
+  </div>
+
+  <div class="fcard">
+    <h3>➕ Aggiungi spesa</h3>
+    <div class="fgrid">
+      <div class="fg"><label>Data</label><input type="date" id="f-d" value="${today()}"></div>
+      <div class="fg"><label>Importo €</label><input type="number" id="f-i" placeholder="0.00" step="0.01" min="0"></div>
+      <div class="fg"><label>Categoria</label>
+        <select id="f-c" onchange="updateSubcat()">
+          <option value="">— seleziona —</option>
+          ${D.cat.map(c=>`<option value="${c.id}" data-nome="${c.nome}" data-col="${c.colore||'#94a3b8'}" data-ico="${c.icona||''}">${c.icona} ${c.nome}</option>`).join('')}
+        </select></div>
+      <div class="fg"><label>Sottocategoria</label>
+        <select id="f-s"><option value="">— nessuna —</option></select></div>
+      <div class="fg"><label>Conto</label>
+        <select id="f-co"><option value="">— nessuno —</option>
+          ${D.conti.map(c=>`<option value="${c.id}" data-nome="${c.nome}">${c.nome}</option>`).join('')}</select></div>
+      <div class="fg"><label>Descrizione (opzionale)</label>
+        <input type="text" id="f-de" placeholder="es. Affitto luglio…"></div>
+    </div>
+    <div style="margin-top:12px"><button class="btn btn-p" onclick="addS()">Salva spesa</button></div>
+  </div>
+
+  <div class="elist">
+    <div class="elist-h"><h3>Spese ${MESI[cm]} ${cy}</h3><span style="font-size:12px;color:var(--muted)">${D.spese.length} voci</span></div>
+    ${D.spese.length===0?'<div class="empty">Nessuna spesa registrata questo mese</div>':
+      D.spese.map(s=>`
+      <div class="ei">
+        <div class="dot" style="background:${s.categoriaColore||'#94a3b8'}"></div>
+        <div class="ei-info">
+          <div class="d">${s.descrizione||s.sottocategoria||s.categoriaNome||'Spesa'}</div>
+          <div class="m">${fdate(s.data)} · ${s.categoriaIcona||''} ${s.categoriaNome||''}${s.sottocategoria?' › '+s.sottocategoria:''} ${s.contoNome?'· '+s.contoNome:''}</div>
+        </div>
+        <div class="ei-amt">−${fmt(s.importo)}</div>
+        <button class="del-btn" onclick="delS('${s.id}')">✕</button>
+      </div>`).join('')}
+  </div>`;
+}
+
+/* ── GRAFICI ── */
+function rGraf(el){
+  const byCat={},colCat={};
+  D.spese.forEach(s=>{
+    const n=s.categoriaNome||'Varie';
+    byCat[n]=(byCat[n]||0)+parseFloat(s.importo);
+    colCat[n]=s.categoriaColore||'#94a3b8';
+  });
+  const labels=Object.keys(byCat),vals=Object.values(byCat),cols=labels.map(l=>colCat[l]);
+
+  el.innerHTML=`
+  <div class="mbar">
+    <button class="ico-btn" onclick="chM(-1)">◀</button>
+    <h2>Grafici · ${MESI[cm]} ${cy}</h2>
+    <button class="ico-btn" onclick="chM(1)">▶</button>
+  </div>
+  ${labels.length===0?'<div class="empty" style="background:var(--card);border-radius:12px;border:1px solid var(--border)">Nessuna spesa questo mese</div>':`
+  <div class="cgrid">
+    <div class="cc"><h3>Spese per categoria</h3><canvas id="cp" height="230"></canvas></div>
+    <div class="cc"><h3>Confronto categorie</h3><canvas id="cb" height="230"></canvas></div>
+  </div>`}`;
+
+  Object.values(charts).forEach(c=>c.destroy());charts={};
+  if(!labels.length)return;
+  charts.pie=new Chart(document.getElementById('cp'),{
+    type:'doughnut',
+    data:{labels,datasets:[{data:vals,backgroundColor:cols,borderWidth:2,borderColor:'#fff'}]},
+    options:{plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:10}}},cutout:'58%'}
+  });
+  charts.bar=new Chart(document.getElementById('cb'),{
+    type:'bar',
+    data:{labels,datasets:[{label:'€',data:vals,backgroundColor:cols,borderRadius:4}]},
+    options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{ticks:{callback:v=>'€'+v}}}}
+  });
+}
+
+/* ── CONTI ── */
+function rCont(el){
+  el.innerHTML=`
+  <div class="mbar">
+    <button class="ico-btn" onclick="chM(-1)">◀</button>
+    <h2>Conti · ${MESI[cm]} ${cy}</h2>
+    <button class="ico-btn" onclick="chM(1)">▶</button>
+  </div>
+  <div class="congrid">
+    ${D.conti.length===0?'<p style="color:var(--muted);font-size:13px">Nessun conto. Aggiungine uno qui sotto.</p>':
+    D.conti.map(c=>{
+      const risp=D.risp.find(r=>r.contoId===c.id);
+      const spMese=D.spese.filter(s=>s.contoId===c.id).reduce((s,x)=>s+parseFloat(x.importo),0);
+      return `<div class="concard">
+        <div class="tipo">${c.tipo}</div>
+        <div class="nome" style="color:${c.colore||'#3b82f6'}">${c.nome}</div>
+        ${c.tipo==='risparmio'?`
+          <div style="font-size:11px;color:var(--muted)">Accantonato ${MESI[cm]}:</div>
+          <div style="font-size:22px;font-weight:700;color:var(--green);margin:4px 0">${risp?fmt(risp.importo):'€ 0,00'}</div>
+          <div class="risp-row">
+            <input type="number" id="ri-${c.id}" placeholder="Importo" step="0.01" value="${risp?risp.importo:''}">
+            <button class="btn btn-g btn-sm" onclick="saveR('${c.id}','${risp?.id||''}')">Salva</button>
+          </div>`:`
+          <div style="font-size:11px;color:var(--muted)">Spese mese:</div>
+          <div style="font-size:22px;font-weight:700;color:var(--red);margin:4px 0">${fmt(spMese)}</div>`}
+        <div style="margin-top:10px">
+          <button class="btn btn-d btn-sm" onclick="delC('${c.id}')">Elimina conto</button>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>
+  <div class="fcard">
+    <h3>➕ Aggiungi conto</h3>
+    <div class="fgrid">
+      <div class="fg"><label>Nome</label><input id="nc-n" placeholder="es. Conto BancaXY"></div>
+      <div class="fg"><label>Tipo</label>
+        <select id="nc-t">
+          <option value="corrente">Conto corrente</option>
+          <option value="risparmio">Conto risparmio</option>
+          <option value="contanti">Contanti</option>
+        </select></div>
+      <div class="fg"><label>Colore</label><input type="color" id="nc-c" value="#3b82f6"></div>
+    </div>
+    <div style="margin-top:12px"><button class="btn btn-p" onclick="addC()">Aggiungi conto</button></div>
+  </div>`;
+}
+
+/* ── IMPOSTAZIONI ── */
+function rSett(el){
+  el.innerHTML=`
+  <h2 style="margin-bottom:18px;font-size:18px">⚙️ Impostazioni</h2>
+
+  ${D.cat.length===0?`
+  <div class="fcard" style="border-color:#bfdbfe;background:#eff6ff">
+    <h3 style="color:#1d4ed8">🚀 Primo accesso</h3>
+    <p style="font-size:13px;color:#1d4ed8;margin-bottom:12px">Carica in automatico tutte le categorie e sottocategorie predefinite per una famiglia italiana. Puoi modificarle o cancellarle dopo.</p>
+    <button class="btn btn-p" onclick="caricaDatiDefault()">Carica categorie predefinite</button>
+  </div>`:`
+  <div class="fcard" style="margin-bottom:8px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3>Categorie e sottocategorie</h3>
+      <button class="btn btn-o btn-sm" onclick="caricaDatiDefault()">↺ Ricarica default</button>
+    </div>
+    ${D.cat.map(c=>`
+    <div class="cat-block">
+      <div class="cat-head" onclick="toggleCat('${c.id}')">
+        <div class="dot" style="background:${c.colore}"></div>
+        <span class="cn">${c.icona} ${c.nome}</span>
+        <span id="arr-${c.id}" class="arr">${openCat===c.id?'▲':'▼'}</span>
+        <button class="btn btn-d btn-sm" onclick="event.stopPropagation();delCat('${c.id}')">Elimina</button>
+      </div>
+      <div id="sub-${c.id}" style="display:${openCat===c.id?'block':'none'}">
+        <div class="subcat-list">
+          ${(c.sottocategorie||[]).map((s,i)=>`
+          <span class="subcat-tag">${s}
+            <button onclick="delSub('${c.id}',${i},'${escHTML(s)}')">✕</button>
+          </span>`).join('')}
+          <div class="add-sub">
+            <input type="text" id="ns-${c.id}" placeholder="Aggiungi sottocategoria…">
+            <button class="btn btn-p btn-sm" onclick="addSub('${c.id}')">+</button>
+          </div>
+        </div>
+      </div>
+    </div>`).join('')}
+  </div>`}
+
+  <div class="fcard">
+    <h3>➕ Aggiungi nuova categoria</h3>
+    <div class="fgrid">
+      <div class="fg"><label>Nome</label><input id="cn" placeholder="es. Animali domestici"></div>
+      <div class="fg"><label>Icona (emoji)</label><input id="ci2" placeholder="🐾" maxlength="2"></div>
+      <div class="fg"><label>Colore</label><input type="color" id="cc2" value="#3b82f6"></div>
+    </div>
+    <div style="margin-top:12px"><button class="btn btn-p" onclick="addCat()">Aggiungi categoria</button></div>
+  </div>`;
+}
+
+function toggleCat(id){
+  openCat=openCat===id?null:id;
+  go('sett');
+}
+
+/* ── AZIONI ── */
+async function addS(){
+  const dv=document.getElementById('f-d').value;
+  const imp=parseFloat(document.getElementById('f-i').value);
+  const sel=document.getElementById('f-c');
+  const opt=sel.options[sel.selectedIndex];
+  const sub=document.getElementById('f-s').value;
+  const coSel=document.getElementById('f-co');
+  const coOpt=coSel.options[coSel.selectedIndex];
+  const des=document.getElementById('f-de').value.trim();
+  if(!dv||!imp||imp<=0){toast('Inserisci data e importo');return}
+  if(!sel.value){toast('Seleziona una categoria');return}
+  const dt=new Date(dv);
+  await db.collection('spese').add({
+    data:dv,importo:imp,
+    categoriaId:sel.value,categoriaNome:opt?.dataset?.nome||'',
+    categoriaColore:opt?.dataset?.col||'#94a3b8',categoriaIcona:opt?.dataset?.ico||'',
+    sottocategoria:sub||'',
+    contoId:coSel.value||'',contoNome:coSel.value?coOpt?.dataset?.nome||'':'',
+    descrizione:des,mese:dt.getMonth()+1,anno:dt.getFullYear()
+  });
+  document.getElementById('f-i').value='';
+  document.getElementById('f-de').value='';
+  document.getElementById('f-s').value='';
+  toast('Spesa salvata ✓');await load();go('dash');
+}
+
+async function delS(id){
+  if(!confirm('Eliminare questa spesa?'))return;
+  await db.collection('spese').doc(id).delete();
+  await load();go(page);
+}
+
+async function addC(){
+  const n=document.getElementById('nc-n').value.trim();
+  const t=document.getElementById('nc-t').value;
+  const c=document.getElementById('nc-c').value;
+  if(!n){toast('Inserisci nome conto');return}
+  await db.collection('conti').add({nome:n,tipo:t,colore:c});
+  toast('Conto aggiunto ✓');await load();go('cont');
+}
+
+async function delC(id){
+  if(!confirm('Eliminare questo conto?'))return;
+  await db.collection('conti').doc(id).delete();
+  await load();go('cont');
+}
+
+async function saveR(cid,eid){
+  const imp=parseFloat(document.getElementById('ri-'+cid).value);
+  if(!imp||imp<0){toast('Importo non valido');return}
+  if(eid){await db.collection('risparmi').doc(eid).update({importo:imp})}
+  else{await db.collection('risparmi').add({contoId:cid,importo:imp,mese:cm,anno:cy})}
+  toast('Risparmio salvato ✓');await load();go('cont');
+}
+
+async function addCat(){
+  const n=document.getElementById('cn').value.trim();
+  const i=document.getElementById('ci2').value.trim()||'📦';
+  const c=document.getElementById('cc2').value;
+  if(!n){toast('Inserisci nome categoria');return}
+  await db.collection('categorie').add({nome:n,icona:i,colore:c,sottocategorie:[]});
+  toast('Categoria aggiunta ✓');await load();go('sett');
+}
+
+async function delCat(id){
+  if(!confirm('Eliminare questa categoria?'))return;
+  await db.collection('categorie').doc(id).delete();
+  await load();go('sett');
+}
+
+async function addSub(catId){
+  const inp=document.getElementById('ns-'+catId);
+  const val=inp.value.trim();
+  if(!val)return;
+  const cat=D.cat.find(c=>c.id===catId);
+  const subs=[...(cat.sottocategorie||[]),val];
+  await db.collection('categorie').doc(catId).update({sottocategorie:subs});
+  toast('Sottocategoria aggiunta ✓');await load();openCat=catId;go('sett');
+}
+
+async function delSub(catId,idx,nome){
+  if(!confirm(`Eliminare "${nome}"?`))return;
+  const cat=D.cat.find(c=>c.id===catId);
+  const subs=(cat.sottocategorie||[]).filter((_,i)=>i!==idx);
+  await db.collection('categorie').doc(catId).update({sottocategorie:subs});
+  toast('Sottocategoria eliminata');await load();openCat=catId;go('sett');
+}
+
+async function chM(d){
+  cm+=d;if(cm>12){cm=1;cy++}if(cm<1){cm=12;cy--}
+  document.getElementById('main').innerHTML='<div class="spin">Caricamento…</div>';
+  await load();go(page);
+}
+
+function fmt(v){return'€ '+parseFloat(v||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function fdate(d){return new Date(d+'T00:00:00').toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit'})}
+function today(){return new Date().toISOString().split('T')[0]}
+function escHTML(s){return s.replace(/'/g,"\\'")}
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500)}
+
+load().then(()=>go('dash')).catch(e=>{
+  document.getElementById('main').innerHTML=`<div class="empty" style="background:var(--card);border-radius:12px;border:1px solid var(--border);margin-top:20px">Errore: ${e.message}</div>`;
+});
+</script>
+</body>
+</html>
