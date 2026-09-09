@@ -95,6 +95,21 @@ input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 2px rgba(5
 .prev-bar .fc{height:12px;border-radius:4px;position:absolute;top:0;left:0}
 .prev-bar .amt{width:80px;text-align:right;font-weight:600;font-size:12px;flex-shrink:0}
 .prev-bar .diff{width:70px;text-align:right;font-size:11px;flex-shrink:0}
+.cmp-row{padding:10px 16px;border-bottom:1px solid var(--border)}
+.cmp-row:last-of-type{border-bottom:none}
+.cmp-cat{font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text)}
+.cmp-split{display:grid;grid-template-columns:1fr 68px 1fr;align-items:center}
+.cmp-lside{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.cmp-rside{display:flex;align-items:center;gap:6px}
+.cmp-mid{text-align:center;font-size:11px;font-weight:700;padding:2px 2px;line-height:1.3}
+.cmp-bref{flex:1;background:var(--bg);border-radius:4px 0 0 4px;height:10px;display:flex;justify-content:flex-end;overflow:hidden}
+.cmp-bcur{flex:1;background:var(--bg);border-radius:0 4px 4px 0;height:10px;overflow:hidden}
+.cmp-bref span{height:10px;display:block;border-radius:4px 0 0 4px}
+.cmp-bcur span{height:10px;display:block;border-radius:0 4px 4px 0}
+.cmp-vref{font-size:12px;font-weight:600;color:#64748b;white-space:nowrap;min-width:68px;text-align:right}
+.cmp-vcur{font-size:12px;font-weight:600;white-space:nowrap;min-width:68px}
+.cmp-hdr{display:grid;grid-template-columns:1fr 68px 1fr;padding:6px 16px;font-size:10px;font-weight:600;color:var(--muted);background:var(--bg);text-transform:uppercase;border-bottom:1px solid var(--border)}
+.cmp-hdr-l{text-align:right}.cmp-hdr-c{text-align:center}.cmp-hdr-r{text-align:left;padding-left:6px}
 .banner{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:14px 16px;margin-bottom:20px;font-size:13px;color:#1d4ed8;display:flex;align-items:center;gap:10px}
 .trasf-row{display:flex;align-items:center;gap:8px;padding:10px 18px;border-bottom:1px solid var(--border);font-size:13px}
 .trasf-row:last-child{border-bottom:none}
@@ -162,6 +177,9 @@ let Dprev={spese:[],entrate:[]};
 let charts={};
 let rescYear=new Date().getFullYear(),rescFrom=1,rescTo=new Date().getMonth()+1;
 let rescData={spese:[],entrate:[]},rescLoaded=false;
+let confMode='prev'; // 'prev' | 'sameyear' | 'custom'
+let confCustomM=(new Date().getMonth()===0?12:new Date().getMonth());
+let confCustomY=(new Date().getMonth()===0?new Date().getFullYear()-1:new Date().getFullYear());
 
 function prevMonth(){let pm=cm-1,py=cy;if(pm<1){pm=12;py--;}return{m:pm,y:py};}
 
@@ -378,66 +396,132 @@ function rGrafDettaglio(el,tipo){
   });
 }
 
-function rGrafConfronto(el){
+async function rGrafConfronto(el){
   const prev=prevMonth();
-  function aggr(voci){const m={};voci.forEach(s=>{const n=s.categoriaNome||'Varie';m[n]=(m[n]||0)+parseFloat(s.importo)});return m;}
-  const curS=aggr(D.spese),preS=aggr(Dprev.spese);
-  const curE=aggr(D.entrate),preE=aggr(Dprev.entrate);
-  const totCS=D.spese.reduce((a,x)=>a+parseFloat(x.importo),0);
-  const totPS=Dprev.spese.reduce((a,x)=>a+parseFloat(x.importo),0);
-  const totCE=D.entrate.reduce((a,x)=>a+parseFloat(x.importo),0);
-  const totPE=Dprev.entrate.reduce((a,x)=>a+parseFloat(x.importo),0);
-  const allCS=[...new Set([...Object.keys(curS),...Object.keys(preS)])].sort((a,b)=>(curS[b]||0)-(curS[a]||0));
-  const allCE=[...new Set([...Object.keys(curE),...Object.keys(preE)])].sort((a,b)=>(curE[b]||0)-(curE[a]||0));
-  const pLabel=MESI[prev.m]+' '+prev.y;
   const cLabel=MESI[cm]+' '+cy;
-  const maxS=Math.max(...[...Object.values(curS),...Object.values(preS)].map(v=>v||0),1);
-  const maxE=Math.max(...[...Object.values(curE),...Object.values(preE)].map(v=>v||0),1);
+  // determine reference period
+  let refM,refY;
+  if(confMode==='prev'){refM=prev.m;refY=prev.y;}
+  else if(confMode==='sameyear'){refM=cm;refY=cy-1;}
+  else{refM=confCustomM;refY=confCustomY;}
+  const refLabel=MESI[refM]+' '+refY;
 
-  const diffS=totCS-totPS, diffE=totCE-totPE;
+  // years available for custom picker (current -2 to current)
+  const yearOpts=[cy,cy-1,cy-2].map(y=>'<option value="'+y+'"'+(confCustomY===y?' selected':'')+'>'+y+'</option>').join('');
+  const mOpts=MESI.slice(1).map((mn,i)=>'<option value="'+(i+1)+'"'+((i+1)===confCustomM?' selected':'')+'>'+mn+'</option>').join('');
+
+  const btnBase='border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);';
+  const btnAct=btnBase+'background:#0071e3;color:#fff;border-color:#0071e3;';
+  const btnOff=btnBase+'background:var(--card);color:var(--text);';
 
   el.innerHTML=
+  '<div class="fcard" style="margin-bottom:16px;padding:14px 16px">'+
+  '<div style="font-size:13px;font-weight:600;margin-bottom:10px">Confronta <strong>'+cLabel+'</strong> con:</div>'+
+  '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'+
+  '<button style="'+(confMode==='prev'?btnAct:btnOff)+'" onclick="setConfMode(\'prev\')">◀ Mese precedente</button>'+
+  '<button style="'+(confMode==='sameyear'?btnAct:btnOff)+'" onclick="setConfMode(\'sameyear\')">📅 Stesso mese anno scorso</button>'+
+  '<button style="'+(confMode==='custom'?btnAct:btnOff)+'" onclick="setConfMode(\'custom\')">🔍 Scegli periodo</button>'+
+  '</div>'+
+  (confMode==='custom'?
+  '<div style="display:flex;gap:8px;align-items:center;margin-top:6px">'+
+  '<select id="conf-m" style="padding:6px 8px;border-radius:8px;border:1px solid var(--border);font-size:13px;background:var(--card);color:var(--text)" onchange="setConfCustom()">'+mOpts+'</select>'+
+  '<select id="conf-y" style="padding:6px 8px;border-radius:8px;border:1px solid var(--border);font-size:13px;background:var(--card);color:var(--text)" onchange="setConfCustom()">'+yearOpts+'</select>'+
+  '</div>':'')+
+  '</div>'+
+  '<div id="conf-body"><div class="spin" style="padding:40px 0;text-align:center">Caricamento…</div></div>';
+
+  // load reference data
+  let refS,refE;
+  if(confMode==='prev'){
+    refS=Dprev.spese;refE=Dprev.entrate;
+  } else {
+    const [rS,rE]=await Promise.all([
+      db.collection('spese').where('mese','==',refM).where('anno','==',refY).get(),
+      db.collection('entrate').where('mese','==',refM).where('anno','==',refY).get(),
+    ]);
+    refS=rS.docs.map(d=>({id:d.id,...d.data()}));
+    refE=rE.docs.map(d=>({id:d.id,...d.data()}));
+  }
+
+  const bodyEl=document.getElementById('conf-body');
+  if(!bodyEl)return;
+
+  function aggr(voci){const m={};voci.forEach(s=>{const n=s.categoriaNome||'Varie';m[n]=(m[n]||0)+parseFloat(s.importo)});return m;}
+  const curS=aggr(D.spese),preS=aggr(refS);
+  const curE=aggr(D.entrate),preE=aggr(refE);
+  const totCS=D.spese.reduce((a,x)=>a+parseFloat(x.importo),0);
+  const totPS=refS.reduce((a,x)=>a+parseFloat(x.importo),0);
+  const totCE=D.entrate.reduce((a,x)=>a+parseFloat(x.importo),0);
+  const totPE=refE.reduce((a,x)=>a+parseFloat(x.importo),0);
+  const allCS=[...new Set([...Object.keys(curS),...Object.keys(preS)])].sort((a,b)=>(curS[b]||0)-(curS[a]||0));
+  const allCE=[...new Set([...Object.keys(curE),...Object.keys(preE)])].sort((a,b)=>(curE[b]||0)-(curE[a]||0));
+  const maxS=Math.max(...[...Object.values(curS),...Object.values(preS)].map(v=>v||0),1);
+  const maxE=Math.max(...[...Object.values(curE),...Object.values(preE)].map(v=>v||0),1);
+  const diffS=totCS-totPS,diffE=totCE-totPE;
+
+  bodyEl.innerHTML=
   '<div class="fcard" style="margin-bottom:16px">'+
-  '<h3 style="margin-bottom:14px">Riepilogo — '+cLabel+' vs '+pLabel+'</h3>'+
+  '<h3 style="margin-bottom:14px">Riepilogo — '+cLabel+' vs '+refLabel+'</h3>'+
   '<div class="cards" style="margin-bottom:0">'+
-  '<div class="card"><div class="lbl">Uscite '+cLabel+'</div><div class="val r">'+fmt(totCS)+'</div><div class="sub">vs '+fmt(totPS)+' ('+pLabel+')</div></div>'+
-  '<div class="card"><div class="lbl">Entrate '+cLabel+'</div><div class="val g">'+fmt(totCE)+'</div><div class="sub">vs '+fmt(totPE)+' ('+pLabel+')</div></div>'+
-  '<div class="card"><div class="lbl">Diff. uscite</div><div class="val '+(diffS<=0?'g':'r')+'">'+(diffS<=0?'−':'+')+''+fmt(Math.abs(diffS))+'</div><div class="sub">'+(diffS<=0?'meno del mese prima':'più del mese prima')+'</div></div>'+
-  '<div class="card"><div class="lbl">Diff. entrate</div><div class="val '+(diffE>=0?'g':'r')+'">'+(diffE>=0?'+':'−')+''+fmt(Math.abs(diffE))+'</div><div class="sub">'+(diffE>=0?'più del mese prima':'meno del mese prima')+'</div></div>'+
-  '</div></div>'+
+  '<div class="card"><div class="lbl">Uscite '+cLabel+'</div><div class="val r">'+fmt(totCS)+'</div><div class="sub">vs '+fmt(totPS)+' ('+refLabel+')</div></div>'+
+  '<div class="card"><div class="lbl">Entrate '+cLabel+'</div><div class="val g">'+fmt(totCE)+'</div><div class="sub">vs '+fmt(totPE)+' ('+refLabel+')</div></div>'+
+  '<div class="card"><div class="lbl">Diff. uscite</div><div class="val '+(diffS<=0?'g':'r')+'">'+(diffS<=0?'−':'+')+''+fmt(Math.abs(diffS))+'</div><div class="sub">'+(diffS<=0?'meno':'più')+' rispetto a '+refLabel+'</div></div>'+
+  '<div class="card"><div class="lbl">Diff. entrate</div><div class="val '+(diffE>=0?'g':'r')+'">'+(diffE>=0?'+':'−')+''+fmt(Math.abs(diffE))+'</div><div class="sub">'+(diffE>=0?'più':'meno')+' rispetto a '+refLabel+'</div></div>'+
+  '</div></div>';
+
+  function cmpRows(allCats,curMap,refMap,maxVal,curColor){
+    return allCats.map(cat=>{
+      const c=curMap[cat]||0,p=refMap[cat]||0;
+      const wc=maxVal>0?((c/maxVal)*100).toFixed(1):'0';
+      const wp=maxVal>0?((p/maxVal)*100).toFixed(1):'0';
+      const diff=c-p;
+      const diffPos=diff>=0;
+      const diffColor=curColor==='#ef4444'?(diffPos?'var(--red)':'var(--green)'):(diffPos?'var(--green)':'var(--red)');
+      const diffSign=diff===0?'=':(diffPos?'+':'−');
+      return '<div class="cmp-row">'+
+        '<div class="cmp-cat">'+cat+'</div>'+
+        '<div class="cmp-split">'+
+        '<div class="cmp-lside">'+
+        '<span class="cmp-vref">'+fmt(p)+'</span>'+
+        '<div class="cmp-bref"><span style="width:'+wp+'%;background:#94a3b8"></span></div>'+
+        '</div>'+
+        '<div class="cmp-mid" style="color:'+diffColor+'">'+diffSign+'<br>'+fmt(Math.abs(diff))+'</div>'+
+        '<div class="cmp-rside">'+
+        '<div class="cmp-bcur"><span style="width:'+wc+'%;background:'+curColor+'"></span></div>'+
+        '<span class="cmp-vcur" style="color:'+curColor+'">'+fmt(c)+'</span>'+
+        '</div>'+
+        '</div>'+
+        '</div>';
+    }).join('');
+  }
+
   (allCS.length>0?
+  bodyEl.innerHTML+=
   '<div class="subcat-detail" style="margin-bottom:16px">'+
-  '<div class="subcat-detail-h">📤 Uscite per categoria — '+cLabel+' vs '+pLabel+'</div>'+
-  allCS.map(cat=>{
-    const c=curS[cat]||0,p=preS[cat]||0;
-    const wc=((c/maxS)*100).toFixed(1),wp=((p/maxS)*100).toFixed(1);
-    const diff=c-p;
-    return '<div class="prev-bar">'+
-      '<span class="blbl">'+cat+'</span>'+
-      '<div class="track"><div class="fp" style="width:'+wp+'%;background:#94a3b8"></div><div class="fc" style="width:'+wc+'%;background:#ef4444"></div></div>'+
-      '<span class="amt" style="color:var(--red)">'+fmt(c)+'</span>'+
-      '<span class="diff" style="color:'+(diff>0?'var(--red)':'var(--green)')+'">'+( diff>0?'+':'')+fmt(diff)+'</span>'+
-      '</div>';
-  }).join('')+
-  '<div style="padding:10px 16px;font-size:11px;color:var(--muted)">🔴 '+cLabel+' &nbsp; ◻ '+pLabel+'</div>'+
-  '</div>':'')+
+  '<div class="subcat-detail-h">📤 Uscite per categoria</div>'+
+  '<div class="cmp-hdr"><div class="cmp-hdr-l">'+refLabel+'</div><div class="cmp-hdr-c">Δ</div><div class="cmp-hdr-r">'+cLabel+'</div></div>'+
+  cmpRows(allCS,curS,preS,maxS,'#ef4444')+
+  '</div>':null);
   (allCE.length>0?
+  bodyEl.innerHTML+=
   '<div class="subcat-detail">'+
-  '<div class="subcat-detail-h">📥 Entrate per categoria — '+cLabel+' vs '+pLabel+'</div>'+
-  allCE.map(cat=>{
-    const c=curE[cat]||0,p=preE[cat]||0;
-    const wc=((c/maxE)*100).toFixed(1),wp=((p/maxE)*100).toFixed(1);
-    const diff=c-p;
-    return '<div class="prev-bar">'+
-      '<span class="blbl">'+cat+'</span>'+
-      '<div class="track"><div class="fp" style="width:'+wp+'%;background:#94a3b8"></div><div class="fc" style="width:'+wc+'%;background:#10b981"></div></div>'+
-      '<span class="amt" style="color:var(--green)">'+fmt(c)+'</span>'+
-      '<span class="diff" style="color:'+(diff>=0?'var(--green)':'var(--red)')+'">'+( diff>=0?'+':'')+fmt(diff)+'</span>'+
-      '</div>';
-  }).join('')+
-  '<div style="padding:10px 16px;font-size:11px;color:var(--muted)">🟢 '+cLabel+' &nbsp; ◻ '+pLabel+'</div>'+
-  '</div>':'')+
-  (allCS.length===0&&allCE.length===0?'<div class="empty" style="background:var(--card);border-radius:12px;border:1px solid var(--border)">Nessun dato per il confronto</div>':'');
+  '<div class="subcat-detail-h">📥 Entrate per categoria</div>'+
+  '<div class="cmp-hdr"><div class="cmp-hdr-l">'+refLabel+'</div><div class="cmp-hdr-c">Δ</div><div class="cmp-hdr-r">'+cLabel+'</div></div>'+
+  cmpRows(allCE,curE,preE,maxE,'#10b981')+
+  '</div>':null);
+  if(allCS.length===0&&allCE.length===0)bodyEl.innerHTML+='<div class="empty" style="background:var(--card);border-radius:12px;border:1px solid var(--border)">Nessun dato per il confronto</div>';
+}
+
+function setConfMode(mode){
+  confMode=mode;
+  if(mode==='prev'){const p=prevMonth();confCustomM=p.m;confCustomY=p.y;}
+  else if(mode==='sameyear'){confCustomM=cm;confCustomY=cy-1;}
+  rGrafConfronto(document.getElementById('gb'));
+}
+function setConfCustom(){
+  confCustomM=parseInt(document.getElementById('conf-m').value);
+  confCustomY=parseInt(document.getElementById('conf-y').value);
+  rGrafConfronto(document.getElementById('gb'));
 }
 
 /* CONTI */
@@ -518,13 +602,39 @@ async function loadRispTrend(){
     '<div style="text-align:right;flex-shrink:0"><div style="font-size:15px;font-weight:700;color:'+color+'">'+fmt(last?parseFloat(last.importo):0)+'/mese</div>'+
     '<div style="font-size:11px;color:var(--muted)">ultimo accantonamento</div></div></div>';
   }).join('');
+  // movements grouped by account
+  const movSections=rispC.map(c=>{
+    const color=c.colore||palette[rispC.indexOf(c)%palette.length];
+    const cMovs=allR.filter(r=>r.contoId===c.id).sort((a,b)=>(b.anno*12+b.mese)-(a.anno*12+a.mese));
+    if(cMovs.length===0)return '';
+    const totale=cMovs.reduce((s,r)=>s+parseFloat(r.importo),0);
+    return '<div class="elist" style="margin-bottom:12px">'+
+      '<div class="elist-h">'+
+      '<h3 style="color:'+color+'">'+c.nome+'</h3>'+
+      '<span style="font-size:12px;color:var(--muted)">'+cMovs.length+' voci · tot. '+fmt(totale)+'</span>'+
+      '</div>'+
+      cMovs.map(r=>'<div class="ei">'+
+        '<div class="dot" style="background:'+color+'"></div>'+
+        '<div class="ei-info">'+
+        '<div class="d">'+MESI[r.mese]+' '+r.anno+'</div>'+
+        '</div>'+
+        '<div style="text-align:right;flex-shrink:0">'+
+        '<div style="font-size:15px;font-weight:700;color:var(--green)">'+fmt(parseFloat(r.importo))+'</div>'+
+        '<button class="btn btn-d btn-sm" style="margin-top:4px;font-size:11px;padding:3px 8px" onclick="delRisp(\''+r.id+'\')">Elimina</button>'+
+        '</div>'+
+        '</div>'
+      ).join('')+
+      '</div>';
+  }).join('');
+
   if(charts.rispTrend){try{charts.rispTrend.destroy()}catch(e){}}
   trendEl.innerHTML=
   '<div style="margin-bottom:14px"><canvas id="rt-chart" height="120"></canvas></div>'+
-  '<div class="elist">'+
+  '<div class="elist" style="margin-bottom:16px">'+
   '<div class="elist-h"><h3>Riepilogo conti deposito — '+String(cy-1)+' / '+cy+'</h3></div>'+
   rows+
-  '</div>';
+  '</div>'+
+  (movSections||'<div class="empty" style="background:var(--card);border-radius:12px;border:1px solid var(--border)">Nessun movimento registrato</div>');
   charts.rispTrend=new Chart(document.getElementById('rt-chart'),{
     type:'line',
     data:{labels,datasets},
@@ -710,6 +820,7 @@ async function addC(){
 }
 
 async function delC(id){if(!confirm('Eliminare questo conto?'))return;await db.collection('conti').doc(id).delete();await load();go('cont')}
+async function delRisp(id){if(!confirm('Eliminare questo movimento?'))return;await db.collection('risparmi').doc(id).delete();await load();loadRispTrend();}
 
 async function saveR(cid,eid){
   const imp=parseFloat(document.getElementById('ri-'+cid).value);
