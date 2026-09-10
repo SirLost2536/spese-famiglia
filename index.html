@@ -1095,7 +1095,10 @@ async function rPortafoglio(el){
       (p.valoreAttuale!==null
         ?'<div style="font-size:17px;font-weight:700;color:var(--primary)">'+fmt(p.valoreAttuale)+'</div>'+
           '<div style="font-size:11px;color:'+(g>=0?'var(--green)':'var(--red)')+';">'+(g>=0?'+':'')+fmt(g)+' ('+(gp>=0?'+':'')+gp.toFixed(1)+'%)</div>'
-        :'<div style="font-size:13px;color:var(--muted)">prezzo n.d.</div>'
+        :'<div style="display:flex;align-items:center;gap:6px">'+
+          '<input type="number" step="0.01" min="0" placeholder="Prezzo €" id="mprice-'+tickId+'" style="width:90px;padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">'+
+          '<button onclick="saveManualPrice(\''+p.ticker+'\',\''+tickId+'\')" style="background:var(--primary);color:#fff;border:none;border-radius:6px;padding:5px 8px;font-size:11px;cursor:pointer;white-space:nowrap">✓ Usa</button>'+
+          '</div>'
       )+
       '</div></div>'+
       '<div style="display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--muted);margin-top:6px">'+
@@ -1174,28 +1177,49 @@ async function fetchPrezziETF(force=false){
 }
 
 async function fetchSingleETFPrice(ticker){
-  const t=encodeURIComponent(ticker);
-  const yUrl='https://query2.finance.yahoo.com/v8/finance/chart/'+t+'?interval=1d&range=5d';
-  const urls=[
-    'https://corsproxy.io/?'+encodeURIComponent(yUrl),
-    'https://api.allorigins.win/raw?url='+encodeURIComponent(yUrl),
-    'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(yUrl),
-    yUrl,
+  const qUrl='https://query2.finance.yahoo.com/v7/finance/quote?symbols='+encodeURIComponent(ticker);
+  const cUrl='https://query2.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(ticker)+'?interval=1d&range=5d';
+  const attempts=[
+    {url:'https://corsproxy.io/?'+qUrl, type:'q'},
+    {url:'https://corsproxy.io/?'+cUrl, type:'c'},
+    {url:'https://api.allorigins.win/raw?url='+encodeURIComponent(qUrl), type:'q'},
+    {url:'https://api.allorigins.win/raw?url='+encodeURIComponent(cUrl), type:'c'},
+    {url:'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(qUrl), type:'q'},
+    {url:qUrl, type:'q'},
+    {url:cUrl, type:'c'},
   ];
-  for(const url of urls){
+  for(const {url,type} of attempts){
     try{
       const ctrl=new AbortController();
-      const tid=setTimeout(()=>ctrl.abort(),10000);
+      const tid=setTimeout(()=>ctrl.abort(),12000);
       const res=await fetch(url,{signal:ctrl.signal});
       clearTimeout(tid);
       if(!res.ok) continue;
       const data=await res.json();
-      const meta=data?.chart?.result?.[0]?.meta;
-      const price=meta?.regularMarketPrice??meta?.previousClose??meta?.chartPreviousClose;
+      let price=null;
+      if(type==='q') price=data?.quoteResponse?.result?.[0]?.regularMarketPrice;
+      else{ const m=data?.chart?.result?.[0]?.meta; price=m?.regularMarketPrice??m?.previousClose??m?.chartPreviousClose; }
       if(price&&price>0) return parseFloat(price);
     }catch(e){continue;}
   }
   return null;
+}
+
+function saveManualPrice(ticker,tickId){
+  const val=parseFloat(document.getElementById('mprice-'+tickId)?.value||0);
+  if(!val||val<=0){toast('Inserisci un prezzo valido');return;}
+  try{
+    const c=JSON.parse(localStorage.getItem('etf_prices_cache')||'{}');
+    if(!c.prices) c.prices={};
+    c.prices[ticker]=val;
+    const now=new Date();
+    const todayStr=cy+'-'+String(cm).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+    c.date=todayStr;
+    c.updated=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+    localStorage.setItem('etf_prices_cache',JSON.stringify(c));
+  }catch(e){}
+  toast('Prezzo salvato!');
+  contTab='portafoglio';go('cont');
 }
 
 function toggleAcqDetail(tickId){
