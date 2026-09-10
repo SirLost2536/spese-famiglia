@@ -268,7 +268,7 @@ let DprevPrev={spese:[],entrate:[]};
 let homeDataLoaded=false;
 let charts={};
 let rescYear=new Date().getFullYear(),rescFrom=1,rescTo=new Date().getMonth()+1;
-let rescData={spese:[],entrate:[]},rescLoaded=false;
+let rescData={spese:[],entrate:[],risparmi:[]},rescLoaded=false;
 let confMode='prev'; // 'prev' | 'sameyear' | 'custom'
 let confCustomM=(new Date().getMonth()===0?12:new Date().getMonth());
 let confCustomY=(new Date().getMonth()===0?new Date().getFullYear()-1:new Date().getFullYear());
@@ -1725,12 +1725,14 @@ async function loadAndRenderResc(){
   rescTo=parseInt(document.getElementById('r-tm').value);
   if(rescFrom>rescTo){toast('Il mese iniziale deve essere ≤ al mese finale');return;}
   document.getElementById('resc-body').innerHTML='<div class="spin">Caricamento…</div>';
-  const [s,e]=await Promise.all([
+  const [s,e,r]=await Promise.all([
     db.collection('spese').where('anno','==',rescYear).get(),
     db.collection('entrate').where('anno','==',rescYear).get(),
+    db.collection('risparmi').where('anno','==',rescYear).get(),
   ]);
   rescData.spese=s.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.mese>=rescFrom&&x.mese<=rescTo);
   rescData.entrate=e.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.mese>=rescFrom&&x.mese<=rescTo);
+  rescData.risparmi=r.docs.map(d=>({id:d.id,...d.data()})).filter(x=>x.mese>=rescFrom&&x.mese<=rescTo);
   rescLoaded=true;
   document.getElementById('resc-body').innerHTML=renderRescBody();
   renderRescCharts();
@@ -1738,33 +1740,40 @@ async function loadAndRenderResc(){
 
 function renderRescBody(){
   if(!rescLoaded)return'';
-  if(rescData.spese.length===0&&rescData.entrate.length===0){
+  if(rescData.spese.length===0&&rescData.entrate.length===0&&rescData.risparmi.length===0){
     return'<div class="empty" style="background:var(--card);border-radius:12px;border:1px solid var(--border)">Nessun dato per il periodo selezionato</div>';
   }
   const byM={};
-  for(let m=rescFrom;m<=rescTo;m++)byM[m]={spese:0,entrate:0};
+  for(let m=rescFrom;m<=rescTo;m++)byM[m]={spese:0,entrate:0,risparmi:0};
   rescData.spese.forEach(x=>{if(byM[x.mese]!==undefined)byM[x.mese].spese+=parseFloat(x.importo)});
   rescData.entrate.forEach(x=>{if(byM[x.mese]!==undefined)byM[x.mese].entrate+=parseFloat(x.importo)});
+  rescData.risparmi.forEach(x=>{if(byM[x.mese]!==undefined)byM[x.mese].risparmi+=parseFloat(x.importo)});
   const totS=Object.values(byM).reduce((a,v)=>a+v.spese,0);
   const totE=Object.values(byM).reduce((a,v)=>a+v.entrate,0);
-  const saldo=totE-totS;
+  const totR=Object.values(byM).reduce((a,v)=>a+v.risparmi,0);
+  const saldo=totE-totS-totR;
   const pLabel=MESI[rescFrom]+(rescFrom!==rescTo?' — '+MESI[rescTo]:'')+' '+rescYear;
+  // CSS per tabella 5 colonne
+  const thStyle='display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr 1fr;padding:8px 18px;background:var(--bg);font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)';
+  const trStyle='display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr 1fr;padding:9px 18px;border-bottom:1px solid var(--border);font-size:13px';
   return'<div class="cards" style="margin-bottom:20px">'+
   '<div class="card"><div class="lbl">Entrate totali</div><div class="val g">'+fmt(totE)+'</div><div class="sub">'+pLabel+'</div></div>'+
   '<div class="card"><div class="lbl">Uscite totali</div><div class="val r">'+fmt(totS)+'</div><div class="sub">'+pLabel+'</div></div>'+
-  '<div class="card"><div class="lbl">Saldo periodo</div><div class="val '+(saldo>=0?'g':'r')+'">'+fmt(saldo)+'</div><div class="sub">'+(saldo>=0?'attivo':'passivo')+'</div></div>'+
+  '<div class="card"><div class="lbl">Accantonato</div><div class="val b">'+fmt(totR)+'</div><div class="sub">conti deposito</div></div>'+
+  '<div class="card"><div class="lbl">Residuo</div><div class="val '+(saldo>=0?'g':'r')+'">'+fmt(saldo)+'</div><div class="sub">entrate − uscite − risp.</div></div>'+
   '</div>'+
-  '<div class="fcard" style="margin-bottom:20px;padding-bottom:20px"><h3 style="margin-bottom:14px">Entrate vs Uscite per mese</h3><canvas id="resc-chart" height="110"></canvas></div>'+
+  '<div class="fcard" style="margin-bottom:20px;padding-bottom:20px"><h3 style="margin-bottom:14px">Entrate · Uscite · Risparmi per mese</h3><canvas id="resc-chart" height="130"></canvas></div>'+
   '<div class="elist" style="margin-bottom:20px">'+
   '<div class="elist-h"><h3>Riepilogo mensile</h3></div>'+
-  '<div class="resc-table">'+
-  '<div class="resc-th"><span>Mese</span><span style="text-align:right">Entrate</span><span style="text-align:right">Uscite</span><span style="text-align:right">Saldo</span></div>'+
+  '<div style="overflow-x:auto">'+
+  '<div style="'+thStyle+'"><span>Mese</span><span style="text-align:right">Entrate</span><span style="text-align:right">Uscite</span><span style="text-align:right">Risparmi</span><span style="text-align:right">Residuo</span></div>'+
   Object.entries(byM).map(([m,v])=>{
-    const sal=v.entrate-v.spese;
-    return'<div class="resc-tr">'+
+    const sal=v.entrate-v.spese-v.risparmi;
+    return'<div style="'+trStyle+(Object.entries(byM).indexOf([m,v])===Object.keys(byM).length-1?';border-bottom:none':'')+'">'+
     '<span style="font-weight:500">'+MESI[parseInt(m)]+'</span>'+
     '<span style="text-align:right;color:var(--green)">'+fmt(v.entrate)+'</span>'+
     '<span style="text-align:right;color:var(--red)">'+fmt(v.spese)+'</span>'+
+    '<span style="text-align:right;color:var(--primary)">'+fmt(v.risparmi)+'</span>'+
     '<span style="text-align:right;font-weight:600;color:'+(sal>=0?'var(--green)':'var(--red)')+'">'+fmt(sal)+'</span>'+
     '</div>';
   }).join('')+
@@ -1776,19 +1785,26 @@ function renderRescCharts(){
   const canvas=document.getElementById('resc-chart');
   if(!canvas)return;
   const byM={};
-  for(let m=rescFrom;m<=rescTo;m++)byM[m]={spese:0,entrate:0};
+  for(let m=rescFrom;m<=rescTo;m++)byM[m]={spese:0,entrate:0,risparmi:0};
   rescData.spese.forEach(x=>{if(byM[x.mese]!==undefined)byM[x.mese].spese+=parseFloat(x.importo)});
   rescData.entrate.forEach(x=>{if(byM[x.mese]!==undefined)byM[x.mese].entrate+=parseFloat(x.importo)});
-  const labels=Object.keys(byM).map(m=>MESI[parseInt(m)]);
+  rescData.risparmi.forEach(x=>{if(byM[x.mese]!==undefined)byM[x.mese].risparmi+=parseFloat(x.importo)});
+  const labels=Object.keys(byM).map(m=>MESI[parseInt(m)].substring(0,3));
   const dataS=Object.values(byM).map(v=>+v.spese.toFixed(2));
   const dataE=Object.values(byM).map(v=>+v.entrate.toFixed(2));
+  const dataR=Object.values(byM).map(v=>+v.risparmi.toFixed(2));
   charts.resc=new Chart(canvas,{
     type:'bar',
     data:{labels,datasets:[
-      {label:'Entrate',data:dataE,backgroundColor:'rgba(16,185,129,0.8)',borderRadius:4},
-      {label:'Uscite',data:dataS,backgroundColor:'rgba(239,68,68,0.8)',borderRadius:4}
+      {label:'Entrate',data:dataE,backgroundColor:'rgba(16,185,129,0.82)',borderRadius:4},
+      {label:'Uscite',data:dataS,backgroundColor:'rgba(239,68,68,0.82)',borderRadius:4},
+      {label:'Risparmi',data:dataR,backgroundColor:'rgba(59,130,246,0.82)',borderRadius:4}
     ]},
-    options:{plugins:{legend:{position:'bottom',labels:{font:{size:11}}}},scales:{y:{ticks:{callback:v=>'€'+v.toLocaleString('it-IT')},beginAtZero:true}}}
+    options:{
+      plugins:{legend:{position:'bottom',labels:{font:{size:11},usePointStyle:true,pointStyleWidth:8}}},
+      scales:{y:{ticks:{callback:v=>'€'+v.toLocaleString('it-IT'),font:{size:11}},beginAtZero:true,grid:{color:'rgba(0,0,0,.05)'}},x:{grid:{display:false}}},
+      interaction:{mode:'index',intersect:false}
+    }
   });
 }
 
