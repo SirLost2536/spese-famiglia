@@ -1005,12 +1005,13 @@ async function saveRispCont(){
 }
 
 /* PORTAFOGLIO ETF */
+let etfEditId=null;
 async function rPortafoglio(el){
   const todayD=new Date();
-  const todayStr=cy+'-'+String(cm).padStart(2,'0')+'-'+String(todayD.getDate()).padStart(2,'0');
+  const todayStr=todayD.getFullYear()+'-'+String(todayD.getMonth()+1).padStart(2,'0')+'-'+String(todayD.getDate()).padStart(2,'0');
   el.innerHTML=
   '<div class="mbar"><h2>📈 Portafoglio ETF</h2>'+
-  '<button class="ico-btn" id="etf-refresh-btn" onclick="fetchPrezziETF(true).then(()=>rPortafoglio(document.getElementById(\'main\')))" title="Aggiorna prezzi">↺</button></div>'+
+  '<button class="ico-btn" id="etf-refresh-btn" onclick="ptfRefresh()" title="Aggiorna prezzi">↺</button></div>'+
   '<div class="tab-row">'+
   '<button class="tab" onclick="contTab=\'conti\';go(\'cont\')">🏦 Conti Risparmio</button>'+
   '<button class="tab act-b">📈 Portafoglio ETF</button>'+
@@ -1018,33 +1019,47 @@ async function rPortafoglio(el){
   '<div id="ptf-content"><div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Caricamento…</div></div>';
 
   // Carica acquisti da Firebase
-  const snap=await db.collection('portafoglio').orderBy('data','desc').get();
+  const snap=await db.collection('portafoglio').orderBy('data','asc').get();
   const acquisti=snap.docs.map(d=>({id:d.id,...d.data()}));
 
-  // Raggruppa per ticker
-  const byTicker={};
-  acquisti.forEach(a=>{
-    const t=a.ticker;
-    if(!byTicker[t]) byTicker[t]={ticker:t,nome:a.nome||t,brokers:new Set(),acquisti:[],totQuote:0,totSpeso:0};
-    byTicker[t].acquisti.push(a);
-    byTicker[t].totQuote+=parseFloat(a.quote||0);
-    byTicker[t].totSpeso+=parseFloat(a.speso||0);
-    if(a.broker) byTicker[t].brokers.add(a.broker);
-  });
-  const posizioni=Object.values(byTicker);
-
-  // Prezzi
+  // Prezzi (parallelo, non bloccante)
   const prices=await fetchPrezziETF(false);
-  if(Object.keys(prices).length===0&&posizioni.length>0) toast('⚠️ Prezzi non disponibili — riprova con ↺');
 
-  // Calcola totali
-  let totValore=0,totInvestito=0,prezziMancanti=0;
-  posizioni.forEach(p=>{
-    p.prezzoAttuale=prices[p.ticker]||null;
-    p.valoreAttuale=p.prezzoAttuale!==null?p.totQuote*p.prezzoAttuale:null;
-    if(p.valoreAttuale!==null) totValore+=p.valoreAttuale;
-    else prezziMancanti++;
-    totInvestito+=p.totSpeso;
+  // Raggruppa per broker → ticker
+  const byBroker={};
+  const allTickers={};
+  acquisti.forEach(a=>{
+    const br=a.broker||'Altro';
+    const tk=a.ticker;
+    if(!byBroker[br]) byBroker[br]={broker:br,tickers:{},totValore:0,totInvestito:0};
+    if(!byBroker[br].tickers[tk]) byBroker[br].tickers[tk]={ticker:tk,nome:a.nome||tk,acquisti:[],totQuote:0,totSpeso:0};
+    byBroker[br].tickers[tk].acquisti.push(a);
+    byBroker[br].tickers[tk].totQuote+=parseFloat(a.quote||0);
+    byBroker[br].tickers[tk].totSpeso+=parseFloat(a.speso||0);
+    if(!allTickers[tk]) allTickers[tk]={ticker:tk,nome:a.nome||tk,totQuote:0,totSpeso:0};
+    allTickers[tk].totQuote+=parseFloat(a.quote||0);
+    allTickers[tk].totSpeso+=parseFloat(a.speso||0);
+  });
+
+  // Totali globali
+  let totValore=0,totInvestito=0,prezziMancanti=[];
+  Object.values(allTickers).forEach(t=>{
+    const pr=prices[t.ticker]||null;
+    t.prezzoAttuale=pr;
+    t.valoreAttuale=pr!==null?t.totQuote*pr:null;
+    if(t.valoreAttuale!==null) totValore+=t.valoreAttuale;
+    else prezziMancanti.push(t.ticker);
+    totInvestito+=t.totSpeso;
+  });
+  // Calcola valore per broker
+  Object.values(byBroker).forEach(br=>{
+    Object.values(br.tickers).forEach(t=>{
+      const pr=prices[t.ticker]||null;
+      t.prezzoAttuale=pr;
+      t.valoreAttuale=pr!==null?t.totQuote*pr:null;
+      if(t.valoreAttuale!==null) br.totValore+=t.valoreAttuale;
+      br.totInvestito+=t.totSpeso;
+    });
   });
 
   const guadagno=totValore-totInvestito;
@@ -1054,7 +1069,7 @@ async function rPortafoglio(el){
   let cacheInfo='';
   try{
     const c=JSON.parse(localStorage.getItem('etf_prices_cache')||'{}');
-    if(c.updated&&c.date) cacheInfo='aggiornati '+(c.date===todayStr?'oggi':'il '+c.date)+' alle '+c.updated;
+    if(c.updated&&c.date){const today=todayStr;cacheInfo=(c.date===today?'oggi':'il '+c.date)+' alle '+c.updated;}
   }catch(e){}
 
   const ptfEl=document.getElementById('ptf-content');
@@ -1062,77 +1077,153 @@ async function rPortafoglio(el){
 
   let html='';
 
-  if(posizioni.length===0){
-    html='<div class="fcard" style="text-align:center;padding:32px"><p style="font-size:13px;color:var(--muted)">Nessun ETF inserito ancora. Aggiungi il tuo primo acquisto qui sotto.</p></div>';
+  if(acquisti.length===0){
+    html='<div class="fcard" style="text-align:center;padding:32px"><p style="font-size:13px;color:var(--muted)">Nessun acquisto inserito. Aggiungi il primo qui sotto.</p></div>';
   } else {
-    // Cards riepilogo
+    // Cards riepilogo globale
+    const hasVal=totValore>0;
     html+=
-    '<div class="cards">'+
-    '<div class="card"><div class="lbl">Valore attuale</div><div class="val b">'+fmt(totValore)+'</div>'+
-    (cacheInfo?'<div class="sub">Prezzi '+cacheInfo+'</div>':'')+
+    '<div class="cards" style="margin-bottom:20px">'+
+    '<div class="card">'+
+    '<div class="lbl">Valore portafoglio</div>'+
+    '<div class="val b">'+(hasVal?fmt(totValore):'—')+'</div>'+
+    '<div class="sub">'+(cacheInfo?'Aggiornato '+cacheInfo:'prezzi non disponibili')+'</div>'+
     '</div>'+
-    '<div class="card"><div class="lbl">Totale investito</div><div class="val">'+fmt(totInvestito)+'</div><div class="sub">somma acquisti</div></div>'+
-    '<div class="card"><div class="lbl">Rendimento</div><div class="val '+(guadagno>=0?'g':'r')+'">'+fmt(guadagno)+'</div><div class="sub">'+(guadagnoPerc>=0?'+':'')+guadagnoPerc.toFixed(1)+'%</div></div>'+
+    '<div class="card"><div class="lbl">Totale investito</div><div class="val">'+fmt(totInvestito)+'</div><div class="sub">'+acquisti.length+' acquisti</div></div>'+
+    '<div class="card"><div class="lbl">Rendimento</div>'+
+    (hasVal
+      ?'<div class="val '+(guadagno>=0?'g':'r')+'">'+fmt(guadagno)+'</div><div class="sub">'+(guadagnoPerc>=0?'+':'')+guadagnoPerc.toFixed(2)+'%</div>'
+      :'<div class="val" style="color:var(--muted)">—</div><div class="sub">prezzi mancanti</div>'
+    )+
     '</div>'+
-    (prezziMancanti>0?'<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#c2410c">⚠️ Prezzo non disponibile per '+prezziMancanti+' ETF. Premi ↺ per riprovare. Se il problema persiste, verifica che il ticker sia esatto come appare su finance.yahoo.com</div>':'')+
-    // Lista posizioni
-    '<div class="elist" style="margin-bottom:20px">'+
-    '<div class="elist-h"><h3>📊 Posizioni</h3></div>';
+    '</div>';
 
-    posizioni.forEach(p=>{
-      const g=p.valoreAttuale!==null?p.valoreAttuale-p.totSpeso:null;
-      const gp=g!==null&&p.totSpeso>0?(g/p.totSpeso*100):null;
-      const brokersStr=[...p.brokers].join(', ');
-      const tickId=p.ticker.replace(/\./g,'_');
-      html+=
-      '<div style="padding:14px 18px;border-bottom:1px solid var(--border)">'+
-      '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">'+
-      '<div style="min-width:0">'+
-      '<div style="font-size:14px;font-weight:700">'+p.ticker+'</div>'+
-      '<div style="font-size:11px;color:var(--muted);margin-top:1px">'+p.nome+(brokersStr?' · '+brokersStr:'')+'</div>'+
+    // Banner prezzi mancanti + input manuale
+    if(prezziMancanti.length>0){
+      html+='<div class="fcard" style="border-color:#fed7aa;margin-bottom:20px">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'+
+      '<h3 style="font-size:14px;color:#c2410c">⚠️ Prezzi non trovati automaticamente</h3>'+
+      '<button onclick="ptfRefresh()" style="background:#fff7ed;border:1px solid #fed7aa;color:#c2410c;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">↺ Riprova</button>'+
       '</div>'+
-      '<div style="text-align:right;flex-shrink:0">'+
-      (p.valoreAttuale!==null
-        ?'<div style="font-size:17px;font-weight:700;color:var(--primary)">'+fmt(p.valoreAttuale)+'</div>'+
-          '<div style="font-size:11px;color:'+(g>=0?'var(--green)':'var(--red)')+';">'+(g>=0?'+':'')+fmt(g)+' ('+(gp>=0?'+':'')+gp.toFixed(1)+'%)</div>'
-        :'<div style="display:flex;align-items:center;gap:6px">'+
-          '<input type="number" step="0.01" min="0" placeholder="Prezzo €" id="mprice-'+tickId+'" style="width:90px;padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">'+
-          '<button onclick="saveManualPrice(\''+p.ticker+'\',\''+tickId+'\')" style="background:var(--primary);color:#fff;border:none;border-radius:6px;padding:5px 8px;font-size:11px;cursor:pointer;white-space:nowrap">✓ Usa</button>'+
-          '</div>'
+      '<div style="font-size:12px;color:var(--muted);margin-bottom:12px">Inserisci il prezzo manualmente — lo trovi su Yahoo Finance o nell\'app del broker:</div>'+
+      prezziMancanti.map(tk=>{
+        const tid=tk.replace(/\./g,'_');
+        return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'+
+        '<span style="font-size:13px;font-weight:600;min-width:80px">'+tk+'</span>'+
+        '<input type="number" step="0.01" min="0" placeholder="es. 115.40" id="mprice-'+tid+'" style="flex:1;padding:6px 10px;font-size:13px;border:1px solid var(--border);border-radius:6px;background:var(--bg)">'+
+        '<button onclick="saveManualPrice(\''+tk+'\',\''+tid+'\')" style="background:var(--primary);color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;white-space:nowrap">✓ Salva</button>'+
+        '</div>';
+      }).join('')+
+      '</div>';
+    }
+
+    // Sezioni per broker
+    const brokerColors={'Trade Republic':'#1db954','Scalable Capital':'#ff6d00','Fineco':'#003087','Altro':'#6366f1'};
+    Object.values(byBroker).forEach(br=>{
+      const bc=brokerColors[br.broker]||'#6366f1';
+      const bGuad=br.totValore-br.totInvestito;
+      const bGp=br.totInvestito>0?(bGuad/br.totInvestito*100):0;
+      const ticks=Object.values(br.tickers);
+      html+=
+      '<div class="fcard" style="margin-bottom:16px;border-left:3px solid '+bc+'">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'+
+      '<div style="display:flex;align-items:center;gap:10px">'+
+      '<div style="width:10px;height:10px;border-radius:50%;background:'+bc+'"></div>'+
+      '<h3 style="font-size:15px">'+br.broker+'</h3>'+
+      '</div>'+
+      '<div style="text-align:right">'+
+      (br.totValore>0
+        ?'<div style="font-size:16px;font-weight:700;color:var(--primary)">'+fmt(br.totValore)+'</div>'+
+          '<div style="font-size:11px;color:'+(bGuad>=0?'var(--green)':'var(--red)')+';">'+(bGuad>=0?'+':'')+fmt(bGuad)+' ('+(bGp>=0?'+':'')+bGp.toFixed(2)+'%)</div>'
+        :'<div style="font-size:13px;color:var(--muted)">investito: '+fmt(br.totInvestito)+'</div>'
       )+
       '</div></div>'+
-      '<div style="display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--muted);margin-top:6px">'+
-      '<span>'+p.totQuote.toFixed(4)+' quote</span>'+
-      '<span>investito: '+fmt(p.totSpeso)+'</span>'+
-      (p.prezzoAttuale?'<span>prezzo: €'+p.prezzoAttuale.toFixed(2)+'</span>':'')+
-      '</div>'+
-      '<div style="margin-top:8px">'+
-      '<button onclick="toggleAcqDetail(\''+tickId+'\')" style="background:none;border:none;font-size:11px;color:var(--primary);cursor:pointer;padding:0" id="btn-acq-'+tickId+'">▶ Vedi acquisti ('+p.acquisti.length+')</button>'+
-      '<div id="acq-detail-'+tickId+'" style="display:none;margin-top:8px">'+
-      p.acquisti.map(a=>
-        '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-top:1px solid var(--border);gap:8px">'+
-        '<div style="font-size:12px;min-width:0">'+
-        '<div style="font-weight:600">'+parseFloat(a.quote).toFixed(4)+' quote · '+fmt(parseFloat(a.speso))+'</div>'+
-        '<div style="color:var(--muted)">'+(a.data||'')+(a.broker?' · '+a.broker:'')+'</div>'+
+      // ETF nel broker
+      ticks.map(t=>{
+        const g=t.valoreAttuale!==null?t.valoreAttuale-t.totSpeso:null;
+        const gp=g!==null&&t.totSpeso>0?(g/t.totSpeso*100):null;
+        return '<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px">'+
+        '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">'+
+        '<div>'+
+        '<div style="font-size:13px;font-weight:700">'+t.ticker+'</div>'+
+        '<div style="font-size:11px;color:var(--muted)">'+t.nome+'</div>'+
         '</div>'+
-        '<button class="btn btn-d btn-sm" onclick="delAcquistoETF(\''+a.id+'\')">Elimina</button>'+
-        '</div>'
-      ).join('')+
-      '</div></div></div>';
+        '<div style="text-align:right">'+
+        (t.valoreAttuale!==null
+          ?'<div style="font-size:15px;font-weight:700;color:var(--primary)">'+fmt(t.valoreAttuale)+'</div>'+
+            '<div style="font-size:11px;color:'+(g>=0?'var(--green)':'var(--red)')+';">'+(g>=0?'+':'')+fmt(g)+' ('+(gp>=0?'+':'')+gp.toFixed(2)+'%)</div>'
+          :'<div style="font-size:11px;color:var(--muted)">prezzo n.d.</div>'
+        )+
+        '</div></div>'+
+        '<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px">'+
+        '<span>'+t.totQuote.toFixed(4)+' quote</span>'+
+        '<span>investito: '+fmt(t.totSpeso)+'</span>'+
+        (t.prezzoAttuale?'<span>prezzo: €'+t.prezzoAttuale.toFixed(2)+'</span>':'')+
+        '</div>'+
+        // Acquisti con modifica
+        '<div style="margin-top:8px">'+
+        t.acquisti.sort((a,b)=>b.data?.localeCompare(a.data||'')).map(a=>{
+          const tid='ea-'+a.id;
+          return '<div id="row-'+a.id+'" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">'+
+          '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'+
+          '<div style="font-size:12px">'+
+          '<span style="font-weight:600">'+parseFloat(a.quote).toFixed(4)+' quote</span>'+
+          ' · <span>'+fmt(parseFloat(a.speso))+'</span>'+
+          '<span style="color:var(--muted);margin-left:4px">'+(a.data?'· '+a.data:'')+'</span>'+
+          '</div>'+
+          '<div style="display:flex;gap:4px;flex-shrink:0">'+
+          '<button onclick="etfShowEdit(\''+a.id+'\',\''+a.ticker+'\',\''+escHTML(a.nome||a.ticker)+'\','+parseFloat(a.quote)+','+parseFloat(a.speso)+',\''+escHTML(a.broker||'')+'\',\''+escHTML(a.data||'')+'\')" style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer">✏️</button>'+
+          '<button onclick="delAcquistoETF(\''+a.id+'\')" style="background:#fee2e2;border:none;border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer;color:var(--red)">🗑</button>'+
+          '</div></div>'+
+          '<div id="edit-'+a.id+'" style="display:none;margin-top:8px;background:var(--bg);border-radius:8px;padding:10px">'+
+          '<div class="fgrid" style="margin-bottom:8px">'+
+          '<div class="fg"><label>Quote</label><input type="number" id="eq-'+a.id+'" step="0.0001" value="'+parseFloat(a.quote)+'"></div>'+
+          '<div class="fg"><label>Speso (€)</label><input type="number" id="es-'+a.id+'" step="0.01" value="'+parseFloat(a.speso)+'"></div>'+
+          '<div class="fg"><label>Broker</label><select id="eb-'+a.id+'">'+
+          ['Trade Republic','Scalable Capital','Fineco','Altro'].map(b=>'<option '+(b===a.broker?'selected':'')+'>'+b+'</option>').join('')+
+          '</select></div>'+
+          '<div class="fg"><label>Data</label><input type="date" id="ed-'+a.id+'" value="'+(a.data||'')+'"></div>'+
+          '</div>'+
+          '<div style="display:flex;gap:6px">'+
+          '<button onclick="etfSaveEdit(\''+a.id+'\')" class="btn btn-p btn-sm">💾 Salva</button>'+
+          '<button onclick="etfCancelEdit(\''+a.id+'\')" class="btn btn-sm" style="background:var(--bg);border:1px solid var(--border)">Annulla</button>'+
+          '</div></div>'+
+          '</div>';
+        }).join('')+
+        '</div>'+
+        '</div>';
+      }).join('')+
+      '</div>';
     });
-    html+='</div>';
+
+    // Grafico investito nel tempo
+    const monthMap={};
+    acquisti.forEach(a=>{
+      const k=a.anno+'-'+String(a.mese).padStart(2,'0');
+      monthMap[k]=(monthMap[k]||0)+parseFloat(a.speso||0);
+    });
+    const sortedKeys=Object.keys(monthMap).sort();
+    let cum=0;
+    const chartLabels=sortedKeys.map(k=>{const[y,m]=k.split('-');return MESI[parseInt(m)].substring(0,3)+' '+y.slice(2);});
+    const chartData=sortedKeys.map(k=>{cum+=monthMap[k];return Math.round(cum*100)/100;});
+
+    html+=
+    '<div class="fcard" style="margin-bottom:20px">'+
+    '<h3 style="margin-bottom:14px">📈 Investito cumulativo</h3>'+
+    '<div style="position:relative;height:200px"><canvas id="etf-chart"></canvas></div>'+
+    '</div>';
   }
 
   // Form aggiunta
   html+=
   '<div class="fcard">'+
-  '<h3 style="margin-bottom:14px">➕ Aggiungi acquisto ETF</h3>'+
+  '<h3 style="margin-bottom:14px">➕ Nuovo acquisto ETF</h3>'+
   '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#1d4ed8">'+
-  '💡 Trova il ticker su <strong>finance.yahoo.com</strong> cercando il tuo ETF. Per ETF europei solitamente finisce con <strong>.DE</strong> (Xetra) o <strong>.AS</strong> (Amsterdam). Es: <em>VWCE.DE, IWDA.AS, XEON.DE</em>'+
+  '💡 Trova il ticker su <strong>finance.yahoo.com</strong>. ETF europei: finisce con <strong>.DE</strong> (Xetra) o <strong>.AS</strong> (Amsterdam)'+
   '</div>'+
   '<div class="fgrid">'+
-  '<div class="fg"><label>Ticker Yahoo Finance</label><input id="etf-tick" placeholder="es. VWCE.DE" oninput="this.value=this.value.toUpperCase()"></div>'+
-  '<div class="fg"><label>Nome ETF (opzionale)</label><input id="etf-nome" placeholder="es. Vanguard FTSE All-World"></div>'+
+  '<div class="fg"><label>Ticker</label><input id="etf-tick" placeholder="es. VGEK.DE" oninput="this.value=this.value.toUpperCase()"></div>'+
+  '<div class="fg"><label>Nome ETF (opzionale)</label><input id="etf-nome" placeholder="es. Vanguard Asia Pacific"></div>'+
   '<div class="fg"><label>Quote acquistate</label><input type="number" id="etf-quote" placeholder="es. 3.2500" step="0.0001" min="0"></div>'+
   '<div class="fg"><label>Totale speso (€)</label><input type="number" id="etf-speso" placeholder="es. 148.50" step="0.01" min="0"></div>'+
   '<div class="fg"><label>Broker</label><select id="etf-broker">'+
@@ -1147,16 +1238,39 @@ async function rPortafoglio(el){
   '</div>';
 
   ptfEl.innerHTML=html;
+
+  // Disegna grafico se ci sono dati
+  if(acquisti.length>0){
+    const monthMap2={};
+    acquisti.forEach(a=>{const k=a.anno+'-'+String(a.mese).padStart(2,'0');monthMap2[k]=(monthMap2[k]||0)+parseFloat(a.speso||0);});
+    const sk=Object.keys(monthMap2).sort();
+    let c2=0;
+    const cLabels=sk.map(k=>{const[y,m]=k.split('-');return MESI[parseInt(m)].substring(0,3)+' '+y.slice(2);});
+    const cData=sk.map(k=>{c2+=monthMap2[k];return Math.round(c2*100)/100;});
+    const cv=document.getElementById('etf-chart');
+    if(cv){
+      if(charts.etfChart) try{charts.etfChart.destroy();}catch(e){}
+      charts.etfChart=new Chart(cv,{
+        type:'line',
+        data:{labels:cLabels,datasets:[{label:'Investito cumulativo',data:cData,borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,0.1)',borderWidth:2.5,tension:0.35,fill:true,pointRadius:4,pointBackgroundColor:'#3b82f6'}]},
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{ticks:{callback:v=>'€'+v.toLocaleString('it-IT'),font:{size:11}},beginAtZero:true,grid:{color:'rgba(0,0,0,.05)'}},x:{grid:{display:false},ticks:{font:{size:10},maxRotation:45}}}}
+      });
+    }
+  }
+}
+
+async function ptfRefresh(){
+  try{const c=JSON.parse(localStorage.getItem('etf_prices_cache')||'{}');c.date='';localStorage.setItem('etf_prices_cache',JSON.stringify(c));}catch(e){}
+  await rPortafoglio(document.getElementById('main'));
 }
 
 async function fetchPrezziETF(force=false){
-  const todayD=new Date();
-  const todayStr=cy+'-'+String(cm).padStart(2,'0')+'-'+String(todayD.getDate()).padStart(2,'0');
+  const now=new Date();
+  const todayStr=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
   let cache={};
   try{cache=JSON.parse(localStorage.getItem('etf_prices_cache')||'{}');}catch(e){}
   if(!force&&cache.date===todayStr&&cache.prices&&Object.keys(cache.prices).length>0) return cache.prices;
 
-  // Prendi tutti i ticker da Firebase
   let tickers=[];
   try{
     const snap=await db.collection('portafoglio').get();
@@ -1164,45 +1278,43 @@ async function fetchPrezziETF(force=false){
   }catch(e){return cache.prices||{};}
   if(tickers.length===0) return {};
 
-  const prices={};
-  await Promise.all(tickers.map(async ticker=>{
-    const p=await fetchSingleETFPrice(ticker);
-    if(p!==null) prices[ticker]=p;
-  }));
+  // Fetch in parallelo — più veloce
+  const results=await Promise.allSettled(tickers.map(async tk=>({tk,price:await fetchSingleETFPrice(tk)})));
+  const prices={...(cache.prices||{})};
+  results.forEach(r=>{if(r.status==='fulfilled'&&r.value.price!==null) prices[r.value.tk]=r.value.price;});
 
-  const now=new Date();
-  const updated=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
-  try{localStorage.setItem('etf_prices_cache',JSON.stringify({date:todayStr,prices,updated}));}catch(e){}
+  const upd=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  try{localStorage.setItem('etf_prices_cache',JSON.stringify({date:todayStr,prices,updated:upd}));}catch(e){}
   return prices;
 }
 
 async function fetchSingleETFPrice(ticker){
   const qUrl='https://query2.finance.yahoo.com/v7/finance/quote?symbols='+encodeURIComponent(ticker);
   const cUrl='https://query2.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(ticker)+'?interval=1d&range=5d';
-  const attempts=[
-    {url:'https://corsproxy.io/?'+qUrl, type:'q'},
-    {url:'https://corsproxy.io/?'+cUrl, type:'c'},
-    {url:'https://api.allorigins.win/raw?url='+encodeURIComponent(qUrl), type:'q'},
-    {url:'https://api.allorigins.win/raw?url='+encodeURIComponent(cUrl), type:'c'},
-    {url:'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(qUrl), type:'q'},
-    {url:qUrl, type:'q'},
-    {url:cUrl, type:'c'},
-  ];
-  for(const {url,type} of attempts){
+  const makeReq=async(url,type)=>{
+    const ctrl=new AbortController();
+    const tid=setTimeout(()=>ctrl.abort(),5000);
     try{
-      const ctrl=new AbortController();
-      const tid=setTimeout(()=>ctrl.abort(),12000);
       const res=await fetch(url,{signal:ctrl.signal});
       clearTimeout(tid);
-      if(!res.ok) continue;
+      if(!res.ok) throw new Error();
       const data=await res.json();
-      let price=null;
-      if(type==='q') price=data?.quoteResponse?.result?.[0]?.regularMarketPrice;
-      else{ const m=data?.chart?.result?.[0]?.meta; price=m?.regularMarketPrice??m?.previousClose??m?.chartPreviousClose; }
-      if(price&&price>0) return parseFloat(price);
-    }catch(e){continue;}
-  }
-  return null;
+      let p=null;
+      if(type==='q') p=data?.quoteResponse?.result?.[0]?.regularMarketPrice;
+      else{const m=data?.chart?.result?.[0]?.meta;p=m?.regularMarketPrice??m?.previousClose??m?.chartPreviousClose;}
+      if(!p||p<=0) throw new Error();
+      return parseFloat(p);
+    }finally{clearTimeout(tid);}
+  };
+  try{
+    return await Promise.any([
+      makeReq('https://corsproxy.io/?'+qUrl,'q'),
+      makeReq('https://corsproxy.io/?'+cUrl,'c'),
+      makeReq('https://api.allorigins.win/raw?url='+encodeURIComponent(qUrl),'q'),
+      makeReq('https://api.allorigins.win/raw?url='+encodeURIComponent(cUrl),'c'),
+      makeReq(qUrl,'q'),
+    ]);
+  }catch(e){return null;}
 }
 
 function saveManualPrice(ticker,tickId){
@@ -1213,8 +1325,7 @@ function saveManualPrice(ticker,tickId){
     if(!c.prices) c.prices={};
     c.prices[ticker]=val;
     const now=new Date();
-    const todayStr=cy+'-'+String(cm).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
-    c.date=todayStr;
+    c.date=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
     c.updated=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
     localStorage.setItem('etf_prices_cache',JSON.stringify(c));
   }catch(e){}
@@ -1222,13 +1333,23 @@ function saveManualPrice(ticker,tickId){
   contTab='portafoglio';go('cont');
 }
 
-function toggleAcqDetail(tickId){
-  const el=document.getElementById('acq-detail-'+tickId);
-  const btn=document.getElementById('btn-acq-'+tickId);
-  if(!el) return;
-  const open=el.style.display==='none';
-  el.style.display=open?'block':'none';
-  if(btn) btn.textContent=(open?'▼':'▶')+btn.textContent.slice(1);
+function etfShowEdit(id,ticker,nome,quote,speso,broker,data){
+  document.getElementById('edit-'+id).style.display='block';
+}
+function etfCancelEdit(id){
+  document.getElementById('edit-'+id).style.display='none';
+}
+async function etfSaveEdit(id){
+  const quote=parseFloat(document.getElementById('eq-'+id)?.value||0);
+  const speso=parseFloat(document.getElementById('es-'+id)?.value||0);
+  const broker=document.getElementById('eb-'+id)?.value||'';
+  const data=document.getElementById('ed-'+id)?.value||'';
+  if(!quote||quote<=0){toast('Quote non valide');return;}
+  if(!speso||speso<=0){toast('Importo non valido');return;}
+  const dt=new Date(data);
+  await db.collection('portafoglio').doc(id).update({quote,speso,broker,data,anno:dt.getFullYear(),mese:dt.getMonth()+1});
+  toast('Acquisto aggiornato!');
+  contTab='portafoglio';go('cont');
 }
 
 async function addAcquistoETF(){
@@ -1238,7 +1359,7 @@ async function addAcquistoETF(){
   const speso=parseFloat(document.getElementById('etf-speso')?.value||0);
   const broker=document.getElementById('etf-broker')?.value||'';
   const data=document.getElementById('etf-data')?.value||'';
-  if(!ticker){toast('Inserisci il ticker ETF (es. VWCE.DE)');return;}
+  if(!ticker){toast('Inserisci il ticker ETF (es. VGEK.DE)');return;}
   if(!quote||quote<=0){toast('Inserisci le quote acquistate');return;}
   if(!speso||speso<=0){toast('Inserisci il totale speso');return;}
   if(!data){toast('Inserisci la data di acquisto');return;}
