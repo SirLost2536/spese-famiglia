@@ -1139,44 +1139,47 @@ async function rPortafoglio(el,forceRefresh=false){
         :'<div style="font-size:13px;color:var(--muted)">investito: '+fmt(br.totInvestito)+'</div>'
       )+
       '</div></div>'+
-      // ETF nel broker
+      // ETF nel broker — riga compatta + dettagli collassabili
       ticks.map(t=>{
         const g=t.valoreAttuale!==null?t.valoreAttuale-t.totSpeso:null;
         const gp=g!==null&&t.totSpeso>0?(g/t.totSpeso*100):null;
-        return '<div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px">'+
-        '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">'+
-        '<div>'+
-        '<div style="font-size:13px;font-weight:700">'+t.ticker+'</div>'+
-        '<div style="font-size:11px;color:var(--muted)">'+t.nome+'</div>'+
-        '</div>'+
-        '<div style="text-align:right">'+
+        const rowId='etf-det-'+br.broker.replace(/\s/g,'_')+'-'+t.ticker.replace(/\./g,'_');
+        return '<div style="border:1px solid var(--border);border-radius:10px;margin-bottom:8px;overflow:hidden">'+
+        // Riga compatta — sempre visibile
+        '<div onclick="etfToggleDet(\''+rowId+'\')" style="display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;background:var(--card)">'+
+        '<div style="flex:1;min-width:0">'+
+        '<div style="display:flex;align-items:center;gap:8px">'+
+        '<span style="font-size:13px;font-weight:700">'+t.ticker+'</span>'+
         (t.valoreAttuale!==null
-          ?'<div style="font-size:15px;font-weight:700;color:var(--primary)">'+fmt(t.valoreAttuale)+'</div>'+
-            '<div style="font-size:11px;color:'+(g>=0?'var(--green)':'var(--red)')+';">'+(g>=0?'+':'')+fmt(g)+' ('+(gp>=0?'+':'')+gp.toFixed(2)+'%)</div>'
-          :'<div style="font-size:11px;color:var(--muted)">prezzo n.d.</div>'
+          ?'<span style="font-size:13px;font-weight:700;color:var(--primary)">'+fmt(t.valoreAttuale)+'</span>'+
+            '<span style="font-size:11px;padding:2px 6px;border-radius:10px;background:'+(g>=0?'#dcfce7':'#fee2e2')+';color:'+(g>=0?'var(--green)':'var(--red)')+';">'+(gp>=0?'+':'')+gp.toFixed(1)+'%</span>'
+          :'<span style="font-size:11px;color:var(--muted)">n.d.</span>'
         )+
-        '</div></div>'+
-        '<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px">'+
-        '<span>'+t.totQuote.toFixed(4)+' quote</span>'+
-        '<span>investito: '+fmt(t.totSpeso)+'</span>'+
-        (t.prezzoAttuale?'<span>prezzo: €'+t.prezzoAttuale.toFixed(2)+'</span>':'')+
         '</div>'+
-        // Acquisti con modifica
-        '<div style="margin-top:8px">'+
-        t.acquisti.sort((a,b)=>b.data?.localeCompare(a.data||'')).map(a=>{
-          const tid='ea-'+a.id;
-          return '<div id="row-'+a.id+'" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">'+
+        '<div style="font-size:11px;color:var(--muted);margin-top:2px">'+t.acquisti.length+' acquisto'+(t.acquisti.length>1?'i':'')+' · inv. '+fmt(t.totSpeso)+'</div>'+
+        '</div>'+
+        '<span style="font-size:14px;color:var(--muted);flex-shrink:0" id="arr-'+rowId+'">▶</span>'+
+        '</div>'+
+        // Pannello dettagli — collassato di default
+        '<div id="'+rowId+'" style="display:none;border-top:1px solid var(--border);padding:12px 14px;background:var(--bg)">'+
+        '<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted);margin-bottom:10px">'+
+        '<span>📦 '+t.totQuote.toFixed(4)+' quote totali</span>'+
+        (t.prezzoAttuale?'<span>💶 prezzo: €'+t.prezzoAttuale.toFixed(2)+'</span>':'')+
+        (g!==null?'<span style="color:'+(g>=0?'var(--green)':'var(--red)')+'">'+( g>=0?'▲':'▼')+' '+fmt(Math.abs(g))+' ('+gp.toFixed(2)+'%)</span>':'')+
+        '</div>'+
+        t.acquisti.sort((a,b)=>(b.data||'').localeCompare(a.data||'')).map(a=>{
+          return '<div id="row-'+a.id+'" style="border-top:1px solid var(--border);padding:8px 0">'+
           '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'+
-          '<div style="font-size:12px">'+
-          '<span style="font-weight:600">'+parseFloat(a.quote).toFixed(4)+' quote</span>'+
+          '<div style="font-size:12px;color:var(--text)">'+
+          '<span style="font-weight:600">'+parseFloat(a.quote).toFixed(4)+' q</span>'+
           ' · <span>'+fmt(parseFloat(a.speso))+'</span>'+
-          '<span style="color:var(--muted);margin-left:4px">'+(a.data?'· '+a.data:'')+'</span>'+
+          '<span style="color:var(--muted);margin-left:4px">'+(a.data||'')+'</span>'+
           '</div>'+
           '<div style="display:flex;gap:4px;flex-shrink:0">'+
-          '<button onclick="etfShowEdit(\''+a.id+'\',\''+a.ticker+'\',\''+escHTML(a.nome||a.ticker)+'\','+parseFloat(a.quote)+','+parseFloat(a.speso)+',\''+escHTML(a.broker||'')+'\',\''+escHTML(a.data||'')+'\')" style="background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer">✏️</button>'+
-          '<button onclick="delAcquistoETF(\''+a.id+'\')" style="background:#fee2e2;border:none;border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer;color:var(--red)">🗑</button>'+
+          '<button onclick="event.stopPropagation();etfShowEdit(\''+a.id+'\',\''+a.ticker+'\',\''+escHTML(a.nome||a.ticker)+'\','+parseFloat(a.quote)+','+parseFloat(a.speso)+',\''+escHTML(a.broker||'')+'\',\''+escHTML(a.data||'')+'\')" style="background:var(--card);border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer">✏️</button>'+
+          '<button onclick="event.stopPropagation();delAcquistoETF(\''+a.id+'\')" style="background:#fee2e2;border:none;border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer;color:var(--red)">🗑</button>'+
           '</div></div>'+
-          '<div id="edit-'+a.id+'" style="display:none;margin-top:8px;background:var(--bg);border-radius:8px;padding:10px">'+
+          '<div id="edit-'+a.id+'" style="display:none;margin-top:8px;background:var(--card);border-radius:8px;padding:10px;border:1px solid var(--border)">'+
           '<div class="fgrid" style="margin-bottom:8px">'+
           '<div class="fg"><label>Quote</label><input type="number" id="eq-'+a.id+'" step="0.0001" value="'+parseFloat(a.quote)+'"></div>'+
           '<div class="fg"><label>Speso (€)</label><input type="number" id="es-'+a.id+'" step="0.01" value="'+parseFloat(a.speso)+'"></div>'+
@@ -1271,8 +1274,11 @@ async function fetchPrezziETF(tickers=[],force=false){
   try{cache=JSON.parse(localStorage.getItem('etf_prices_cache')||'{}');}catch(e){}
 
   if(!force){
-    // 1. localStorage aggiornato oggi? usa quello (veloce)
-    if(cache.date===todayStr&&cache.prices&&Object.keys(cache.prices).length>0) return cache.prices;
+    // 1. localStorage aggiornato oggi? usa quello e sincronizza su Firebase in background
+    if(cache.date===todayStr&&cache.prices&&Object.keys(cache.prices).length>0){
+      (async()=>{try{const fb=await db.collection('etf_prezzi').doc('cache').get();if(!fb.exists||fb.data().date!==todayStr){await db.collection('etf_prezzi').doc('cache').set(cache);}}catch(e){}})();
+      return cache.prices;
+    }
     // 2. Firebase aggiornato oggi? sincronizza cross-device
     try{
       const fb=await db.collection('etf_prezzi').doc('cache').get();
@@ -1350,6 +1356,14 @@ function saveManualPrice(ticker,tickId){
   contTab='portafoglio';go('cont');
 }
 
+function etfToggleDet(rowId){
+  const el=document.getElementById(rowId);
+  const arr=document.getElementById('arr-'+rowId);
+  if(!el)return;
+  const open=el.style.display==='block';
+  el.style.display=open?'none':'block';
+  if(arr)arr.textContent=open?'▶':'▼';
+}
 function etfShowEdit(id,ticker,nome,quote,speso,broker,data){
   document.getElementById('edit-'+id).style.display='block';
 }
