@@ -258,7 +258,7 @@ const DATI_DEFAULT_ENTRATE=[
 ];
 
 const MESI=['','Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
-let page='dash',formTab='spesa',grafTab='spese',openCat=null,openCatE=null;
+let page='dash',formTab='spesa',grafTab='spese',openCat=null,openCatE=null,contTab='conti';
 let cm=new Date().getMonth()+1,cy=new Date().getFullYear();
 let D={spese:[],entrate:[],conti:[],cat:[],catE:[],risp:[],trasf:[]};
 let Dprev={spese:[],entrate:[]};
@@ -789,11 +789,16 @@ function setConfCustom(){
 
 /* CONTI */
 function rCont(el){
+  if(contTab==='portafoglio'){rPortafoglio(el);return;}
   const rispC=D.conti.filter(c=>c.tipo==='risparmio');
   const todayStr=cy+'-'+String(cm).padStart(2,'0')+'-01';
   el.innerHTML=
-  '<div class="mbar"><h2>💰 Conti Risparmio</h2>'+
+  '<div class="mbar"><h2>🏦 Conti Risparmio</h2>'+
   '<button class="ico-btn" onclick="loadRispTrend()" title="Aggiorna">↺</button></div>'+
+  '<div class="tab-row">'+
+  '<button class="tab act-b">🏦 Conti Risparmio</button>'+
+  '<button class="tab" onclick="contTab=\'portafoglio\';go(\'cont\')">📈 Portafoglio ETF</button>'+
+  '</div>'+
   // Cards
   (rispC.length===0
     ?'<div class="fcard" style="text-align:center;padding:32px"><p style="font-size:13px;color:var(--muted)">Nessun conto deposito. Aggiungine uno qui sotto.</p></div>'
@@ -997,6 +1002,225 @@ async function saveRispCont(){
   document.getElementById('r-i').value='';
   await load();
   loadRispTrend();
+}
+
+/* PORTAFOGLIO ETF */
+async function rPortafoglio(el){
+  const todayD=new Date();
+  const todayStr=cy+'-'+String(cm).padStart(2,'0')+'-'+String(todayD.getDate()).padStart(2,'0');
+  el.innerHTML=
+  '<div class="mbar"><h2>📈 Portafoglio ETF</h2>'+
+  '<button class="ico-btn" id="etf-refresh-btn" onclick="fetchPrezziETF(true).then(()=>rPortafoglio(document.getElementById(\'main\')))" title="Aggiorna prezzi">↺</button></div>'+
+  '<div class="tab-row">'+
+  '<button class="tab" onclick="contTab=\'conti\';go(\'cont\')">🏦 Conti Risparmio</button>'+
+  '<button class="tab act-b">📈 Portafoglio ETF</button>'+
+  '</div>'+
+  '<div id="ptf-content"><div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Caricamento…</div></div>';
+
+  // Carica acquisti da Firebase
+  const snap=await db.collection('portafoglio').orderBy('data','desc').get();
+  const acquisti=snap.docs.map(d=>({id:d.id,...d.data()}));
+
+  // Raggruppa per ticker
+  const byTicker={};
+  acquisti.forEach(a=>{
+    const t=a.ticker;
+    if(!byTicker[t]) byTicker[t]={ticker:t,nome:a.nome||t,brokers:new Set(),acquisti:[],totQuote:0,totSpeso:0};
+    byTicker[t].acquisti.push(a);
+    byTicker[t].totQuote+=parseFloat(a.quote||0);
+    byTicker[t].totSpeso+=parseFloat(a.speso||0);
+    if(a.broker) byTicker[t].brokers.add(a.broker);
+  });
+  const posizioni=Object.values(byTicker);
+
+  // Prezzi
+  const prices=await fetchPrezziETF(false);
+
+  // Calcola totali
+  let totValore=0,totInvestito=0,prezziMancanti=0;
+  posizioni.forEach(p=>{
+    p.prezzoAttuale=prices[p.ticker]||null;
+    p.valoreAttuale=p.prezzoAttuale!==null?p.totQuote*p.prezzoAttuale:null;
+    if(p.valoreAttuale!==null) totValore+=p.valoreAttuale;
+    else prezziMancanti++;
+    totInvestito+=p.totSpeso;
+  });
+
+  const guadagno=totValore-totInvestito;
+  const guadagnoPerc=totInvestito>0?(guadagno/totInvestito*100):0;
+
+  // Info cache
+  let cacheInfo='';
+  try{
+    const c=JSON.parse(localStorage.getItem('etf_prices_cache')||'{}');
+    if(c.updated&&c.date) cacheInfo='aggiornati '+(c.date===todayStr?'oggi':'il '+c.date)+' alle '+c.updated;
+  }catch(e){}
+
+  const ptfEl=document.getElementById('ptf-content');
+  if(!ptfEl) return;
+
+  let html='';
+
+  if(posizioni.length===0){
+    html='<div class="fcard" style="text-align:center;padding:32px"><p style="font-size:13px;color:var(--muted)">Nessun ETF inserito ancora. Aggiungi il tuo primo acquisto qui sotto.</p></div>';
+  } else {
+    // Cards riepilogo
+    html+=
+    '<div class="cards">'+
+    '<div class="card"><div class="lbl">Valore attuale</div><div class="val b">'+fmt(totValore)+'</div>'+
+    (cacheInfo?'<div class="sub">Prezzi '+cacheInfo+'</div>':'')+
+    '</div>'+
+    '<div class="card"><div class="lbl">Totale investito</div><div class="val">'+fmt(totInvestito)+'</div><div class="sub">somma acquisti</div></div>'+
+    '<div class="card"><div class="lbl">Rendimento</div><div class="val '+(guadagno>=0?'g':'r')+'">'+fmt(guadagno)+'</div><div class="sub">'+(guadagnoPerc>=0?'+':'')+guadagnoPerc.toFixed(1)+'%</div></div>'+
+    '</div>'+
+    (prezziMancanti>0?'<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#c2410c">⚠️ Prezzo non disponibile per '+prezziMancanti+' ETF — premi ↺ per riprovare o controlla il ticker</div>':'')+
+    // Lista posizioni
+    '<div class="elist" style="margin-bottom:20px">'+
+    '<div class="elist-h"><h3>📊 Posizioni</h3></div>';
+
+    posizioni.forEach(p=>{
+      const g=p.valoreAttuale!==null?p.valoreAttuale-p.totSpeso:null;
+      const gp=g!==null&&p.totSpeso>0?(g/p.totSpeso*100):null;
+      const brokersStr=[...p.brokers].join(', ');
+      const tickId=p.ticker.replace(/\./g,'_');
+      html+=
+      '<div style="padding:14px 18px;border-bottom:1px solid var(--border)">'+
+      '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">'+
+      '<div style="min-width:0">'+
+      '<div style="font-size:14px;font-weight:700">'+p.ticker+'</div>'+
+      '<div style="font-size:11px;color:var(--muted);margin-top:1px">'+p.nome+(brokersStr?' · '+brokersStr:'')+'</div>'+
+      '</div>'+
+      '<div style="text-align:right;flex-shrink:0">'+
+      (p.valoreAttuale!==null
+        ?'<div style="font-size:17px;font-weight:700;color:var(--primary)">'+fmt(p.valoreAttuale)+'</div>'+
+          '<div style="font-size:11px;color:'+(g>=0?'var(--green)':'var(--red)')+';">'+(g>=0?'+':'')+fmt(g)+' ('+(gp>=0?'+':'')+gp.toFixed(1)+'%)</div>'
+        :'<div style="font-size:13px;color:var(--muted)">prezzo n.d.</div>'
+      )+
+      '</div></div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--muted);margin-top:6px">'+
+      '<span>'+p.totQuote.toFixed(4)+' quote</span>'+
+      '<span>investito: '+fmt(p.totSpeso)+'</span>'+
+      (p.prezzoAttuale?'<span>prezzo: €'+p.prezzoAttuale.toFixed(2)+'</span>':'')+
+      '</div>'+
+      '<div style="margin-top:8px">'+
+      '<button onclick="toggleAcqDetail(\''+tickId+'\')" style="background:none;border:none;font-size:11px;color:var(--primary);cursor:pointer;padding:0" id="btn-acq-'+tickId+'">▶ Vedi acquisti ('+p.acquisti.length+')</button>'+
+      '<div id="acq-detail-'+tickId+'" style="display:none;margin-top:8px">'+
+      p.acquisti.map(a=>
+        '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-top:1px solid var(--border);gap:8px">'+
+        '<div style="font-size:12px;min-width:0">'+
+        '<div style="font-weight:600">'+parseFloat(a.quote).toFixed(4)+' quote · '+fmt(parseFloat(a.speso))+'</div>'+
+        '<div style="color:var(--muted)">'+(a.data||'')+(a.broker?' · '+a.broker:'')+'</div>'+
+        '</div>'+
+        '<button class="btn btn-d btn-sm" onclick="delAcquistoETF(\''+a.id+'\')">Elimina</button>'+
+        '</div>'
+      ).join('')+
+      '</div></div></div>';
+    });
+    html+='</div>';
+  }
+
+  // Form aggiunta
+  html+=
+  '<div class="fcard">'+
+  '<h3 style="margin-bottom:14px">➕ Aggiungi acquisto ETF</h3>'+
+  '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#1d4ed8">'+
+  '💡 Trova il ticker su <strong>finance.yahoo.com</strong> cercando il tuo ETF. Per ETF europei solitamente finisce con <strong>.DE</strong> (Xetra) o <strong>.AS</strong> (Amsterdam). Es: <em>VWCE.DE, IWDA.AS, XEON.DE</em>'+
+  '</div>'+
+  '<div class="fgrid">'+
+  '<div class="fg"><label>Ticker Yahoo Finance</label><input id="etf-tick" placeholder="es. VWCE.DE" oninput="this.value=this.value.toUpperCase()"></div>'+
+  '<div class="fg"><label>Nome ETF (opzionale)</label><input id="etf-nome" placeholder="es. Vanguard FTSE All-World"></div>'+
+  '<div class="fg"><label>Quote acquistate</label><input type="number" id="etf-quote" placeholder="es. 3.2500" step="0.0001" min="0"></div>'+
+  '<div class="fg"><label>Totale speso (€)</label><input type="number" id="etf-speso" placeholder="es. 148.50" step="0.01" min="0"></div>'+
+  '<div class="fg"><label>Broker</label><select id="etf-broker">'+
+  '<option value="Trade Republic">Trade Republic</option>'+
+  '<option value="Scalable Capital">Scalable Capital</option>'+
+  '<option value="Fineco">Fineco</option>'+
+  '<option value="Altro">Altro</option>'+
+  '</select></div>'+
+  '<div class="fg"><label>Data acquisto</label><input type="date" id="etf-data" value="'+todayStr+'"></div>'+
+  '</div>'+
+  '<div style="margin-top:14px"><button class="btn btn-p" onclick="addAcquistoETF()">💾 Salva acquisto</button></div>'+
+  '</div>';
+
+  ptfEl.innerHTML=html;
+}
+
+async function fetchPrezziETF(force=false){
+  const todayD=new Date();
+  const todayStr=cy+'-'+String(cm).padStart(2,'0')+'-'+String(todayD.getDate()).padStart(2,'0');
+  let cache={};
+  try{cache=JSON.parse(localStorage.getItem('etf_prices_cache')||'{}');}catch(e){}
+  if(!force&&cache.date===todayStr&&cache.prices&&Object.keys(cache.prices).length>0) return cache.prices;
+
+  // Prendi tutti i ticker da Firebase
+  let tickers=[];
+  try{
+    const snap=await db.collection('portafoglio').get();
+    tickers=[...new Set(snap.docs.map(d=>d.data().ticker).filter(Boolean))];
+  }catch(e){return cache.prices||{};}
+  if(tickers.length===0) return {};
+
+  const prices={};
+  await Promise.all(tickers.map(async ticker=>{
+    const p=await fetchSingleETFPrice(ticker);
+    if(p!==null) prices[ticker]=p;
+  }));
+
+  const now=new Date();
+  const updated=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  try{localStorage.setItem('etf_prices_cache',JSON.stringify({date:todayStr,prices,updated}));}catch(e){}
+  return prices;
+}
+
+async function fetchSingleETFPrice(ticker){
+  const base='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(ticker)+'?interval=1d&range=2d';
+  const proxy='https://api.allorigins.win/raw?url='+encodeURIComponent(base);
+  for(const url of [base,proxy]){
+    try{
+      const res=await fetch(url,{signal:AbortSignal.timeout(9000)});
+      if(!res.ok) continue;
+      const data=await res.json();
+      const meta=data?.chart?.result?.[0]?.meta;
+      const price=meta?.regularMarketPrice??meta?.previousClose;
+      if(price&&price>0) return parseFloat(price);
+    }catch(e){continue;}
+  }
+  return null;
+}
+
+function toggleAcqDetail(tickId){
+  const el=document.getElementById('acq-detail-'+tickId);
+  const btn=document.getElementById('btn-acq-'+tickId);
+  if(!el) return;
+  const open=el.style.display==='none';
+  el.style.display=open?'block':'none';
+  if(btn) btn.textContent=(open?'▼':'▶')+btn.textContent.slice(1);
+}
+
+async function addAcquistoETF(){
+  const ticker=(document.getElementById('etf-tick')?.value||'').trim().toUpperCase();
+  const nome=(document.getElementById('etf-nome')?.value||'').trim();
+  const quote=parseFloat(document.getElementById('etf-quote')?.value||0);
+  const speso=parseFloat(document.getElementById('etf-speso')?.value||0);
+  const broker=document.getElementById('etf-broker')?.value||'';
+  const data=document.getElementById('etf-data')?.value||'';
+  if(!ticker){toast('Inserisci il ticker ETF (es. VWCE.DE)');return;}
+  if(!quote||quote<=0){toast('Inserisci le quote acquistate');return;}
+  if(!speso||speso<=0){toast('Inserisci il totale speso');return;}
+  if(!data){toast('Inserisci la data di acquisto');return;}
+  const dt=new Date(data);
+  await db.collection('portafoglio').add({ticker,nome:nome||ticker,quote,speso,broker,data,anno:dt.getFullYear(),mese:dt.getMonth()+1});
+  // Invalida cache prezzi per forzare fetch del nuovo ticker
+  try{const c=JSON.parse(localStorage.getItem('etf_prices_cache')||'{}');if(!c.prices?.[ticker]){c.date='';localStorage.setItem('etf_prices_cache',JSON.stringify(c));}}catch(e){}
+  toast('Acquisto salvato!');
+  contTab='portafoglio';go('cont');
+}
+
+async function delAcquistoETF(id){
+  if(!confirm('Eliminare questo acquisto?')) return;
+  await db.collection('portafoglio').doc(id).delete();
+  toast('Acquisto eliminato!');
+  contTab='portafoglio';go('cont');
 }
 
 /* IMPOSTAZIONI */
