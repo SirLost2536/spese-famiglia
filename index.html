@@ -1711,7 +1711,10 @@ function rResc(el){
   '<div class="fg"><label>Da mese</label><select id="r-fm">'+MESI.slice(1).map((m,i)=>'<option value="'+(i+1)+'"'+((i+1)===rescFrom?' selected':'')+'>'+m+'</option>').join('')+'</select></div>'+
   '<div class="fg"><label>A mese</label><select id="r-tm">'+MESI.slice(1).map((m,i)=>'<option value="'+(i+1)+'"'+((i+1)===rescTo?' selected':'')+'>'+m+'</option>').join('')+'</select></div>'+
   '</div>'+
-  '<div style="margin-top:12px"><button class="btn btn-p" onclick="loadAndRenderResc()">📥 Carica periodo</button></div>'+
+  '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">'+
+  '<button class="btn btn-p" onclick="loadAndRenderResc()">📥 Carica periodo</button>'+
+  '<button class="btn btn-o" onclick="exportRescPDF()" id="resc-pdf-btn" style="display:'+(rescLoaded?'inline-flex':'none')+'">📄 Esporta PDF</button>'+
+  '</div>'+
   '</div>'+
   '<div id="resc-body">'+
   (rescLoaded?renderRescBody():'<div class="empty" style="background:var(--card);border-radius:12px;border:1px solid var(--border)">Seleziona un periodo e clicca <b>Carica periodo</b></div>')+
@@ -1736,6 +1739,7 @@ async function loadAndRenderResc(){
   rescLoaded=true;
   document.getElementById('resc-body').innerHTML=renderRescBody();
   renderRescCharts();
+  const pdfBtn=document.getElementById('resc-pdf-btn');if(pdfBtn)pdfBtn.style.display='inline-flex';
 }
 
 function renderRescBody(){
@@ -1769,7 +1773,7 @@ function renderRescBody(){
   '<div style="'+thStyle+'"><span>Mese</span><span style="text-align:right">Entrate</span><span style="text-align:right">Uscite</span><span style="text-align:right">Risparmi</span><span style="text-align:right">Residuo</span></div>'+
   Object.entries(byM).map(([m,v])=>{
     const sal=v.entrate-v.spese-v.risparmi;
-    return'<div style="'+trStyle+(Object.entries(byM).indexOf([m,v])===Object.keys(byM).length-1?';border-bottom:none':'')+'">'+
+    return'<div style="'+trStyle+'">'+
     '<span style="font-weight:500">'+MESI[parseInt(m)]+'</span>'+
     '<span style="text-align:right;color:var(--green)">'+fmt(v.entrate)+'</span>'+
     '<span style="text-align:right;color:var(--red)">'+fmt(v.spese)+'</span>'+
@@ -1777,7 +1781,59 @@ function renderRescBody(){
     '<span style="text-align:right;font-weight:600;color:'+(sal>=0?'var(--green)':'var(--red)')+'">'+fmt(sal)+'</span>'+
     '</div>';
   }).join('')+
-  '</div></div>';
+  '</div></div>'+
+  // Dettaglio per categoria
+  renderRescCatDetail();
+}
+
+function buildRescCatMap(voci){
+  const m={};
+  voci.forEach(x=>{
+    const n=x.categoriaNome||'Varie';
+    const ic=x.categoriaIcona||'';
+    const cl=x.categoriaColore||'#94a3b8';
+    const sc=x.sottocategoria||'';
+    if(!m[n]) m[n]={nome:n,icona:ic,colore:cl,totale:0,sub:{}};
+    m[n].totale+=parseFloat(x.importo||0);
+    if(sc){if(!m[n].sub[sc])m[n].sub[sc]=0; m[n].sub[sc]+=parseFloat(x.importo||0);}
+  });
+  return Object.values(m).sort((a,b)=>b.totale-a.totale);
+}
+
+function renderRescCatDetail(){
+  const cats=buildRescCatMap(rescData.spese);
+  const catE=buildRescCatMap(rescData.entrate);
+  const section=(title,color,items)=>{
+    if(!items.length)return'';
+    return'<div style="margin-bottom:16px">'+
+    '<div style="font-size:13px;font-weight:700;color:'+color+';margin-bottom:8px">'+title+'</div>'+
+    items.map(c=>{
+      const subs=Object.entries(c.sub).sort((a,b)=>b[1]-a[1]);
+      return'<div style="margin-bottom:6px">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:var(--bg);border-radius:8px;cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'block\':\'none\'">'+
+      '<div style="display:flex;align-items:center;gap:7px">'+
+      '<div style="width:8px;height:8px;border-radius:50%;background:'+c.colore+';flex-shrink:0"></div>'+
+      '<span style="font-size:13px;font-weight:600">'+(c.icona?c.icona+' ':'')+c.nome+'</span>'+
+      '</div>'+
+      '<span style="font-size:13px;font-weight:700">'+fmt(c.totale)+'</span>'+
+      '</div>'+
+      (subs.length?'<div style="display:none;padding:4px 0 4px 20px">'+
+      subs.map(([s,v])=>'<div style="display:flex;justify-content:space-between;padding:4px 10px;font-size:12px;color:var(--muted)"><span>'+s+'</span><span style="font-weight:600;color:var(--text)">'+fmt(v)+'</span></div>').join('')+
+      '</div>':'')+
+      '</div>';
+    }).join('')+
+    '</div>';
+  };
+  return'<div class="fcard" style="margin-bottom:20px">'+
+  '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'+
+  '<h3>Dettaglio per categoria</h3>'+
+  '<button onclick="document.getElementById(\'resc-cat-body\').style.display=document.getElementById(\'resc-cat-body\').style.display===\'none\'?\'block\':\'none\'" style="font-size:12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer">mostra/nascondi</button>'+
+  '</div>'+
+  '<div id="resc-cat-body">'+
+  section('🔴 Uscite per categoria','var(--red)',cats)+
+  section('🟢 Entrate per categoria','var(--green)',catE)+
+  '</div>'+
+  '</div>';
 }
 
 function renderRescCharts(){
@@ -1806,6 +1862,90 @@ function renderRescCharts(){
       interaction:{mode:'index',intersect:false}
     }
   });
+}
+
+function exportRescPDF(){
+  if(!rescLoaded){toast('Prima carica un periodo');return;}
+  const pLabel=MESI[rescFrom]+(rescFrom!==rescTo?' — '+MESI[rescTo]:'')+' '+rescYear;
+  // Cattura grafico come immagine
+  const chartCanvas=document.getElementById('resc-chart');
+  const chartImg=chartCanvas?chartCanvas.toDataURL('image/png'):'';
+  // Dati tabella mensile
+  const byM={};
+  for(let m=rescFrom;m<=rescTo;m++)byM[m]={spese:0,entrate:0,risparmi:0};
+  rescData.spese.forEach(x=>{if(byM[x.mese]!==undefined)byM[x.mese].spese+=parseFloat(x.importo)});
+  rescData.entrate.forEach(x=>{if(byM[x.mese]!==undefined)byM[x.mese].entrate+=parseFloat(x.importo)});
+  rescData.risparmi.forEach(x=>{if(byM[x.mese]!==undefined)byM[x.mese].risparmi+=parseFloat(x.importo)});
+  const totS=Object.values(byM).reduce((a,v)=>a+v.spese,0);
+  const totE=Object.values(byM).reduce((a,v)=>a+v.entrate,0);
+  const totR=Object.values(byM).reduce((a,v)=>a+v.risparmi,0);
+  const saldo=totE-totS-totR;
+  // Categorie
+  const cats=buildRescCatMap(rescData.spese);
+  const catE=buildRescCatMap(rescData.entrate);
+  const fmtP=v=>'€ '+parseFloat(v||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const catRows=(items,color)=>items.map(c=>{
+    const subs=Object.entries(c.sub).sort((a,b)=>b[1]-a[1]);
+    return'<tr><td style="padding:6px 8px;font-weight:600;color:'+color+'">'+(c.icona?c.icona+' ':'')+c.nome+'</td><td style="text-align:right;padding:6px 8px;font-weight:700">'+fmtP(c.totale)+'</td></tr>'+
+    subs.map(([s,v])=>'<tr style="background:#f8fafc"><td style="padding:3px 8px 3px 24px;color:#64748b;font-size:12px">'+s+'</td><td style="text-align:right;padding:3px 8px;font-size:12px;color:#64748b">'+fmtP(v)+'</td></tr>').join('');
+  }).join('');
+  const html=`<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8">
+  <title>Resoconto ${pLabel}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#fff;color:#1e293b;padding:24px 28px;font-size:13px}
+    h1{font-size:20px;font-weight:700;margin-bottom:4px}
+    .sub{color:#64748b;font-size:12px;margin-bottom:20px}
+    .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+    .card{border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px}
+    .card .lbl{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+    .card .val{font-size:18px;font-weight:700}
+    .card .val.g{color:#10b981}.card .val.r{color:#ef4444}.card .val.b{color:#3b82f6}
+    h2{font-size:14px;font-weight:700;margin:20px 0 10px;color:#1e293b}
+    .chart-img{width:100%;max-height:220px;object-fit:contain;border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin-bottom:22px}
+    table{width:100%;border-collapse:collapse;margin-bottom:22px}
+    th{background:#f1f5f9;padding:7px 8px;text-align:right;font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;border-bottom:2px solid #e2e8f0}
+    th:first-child{text-align:left}
+    td{padding:7px 8px;border-bottom:1px solid #e2e8f0;text-align:right}
+    td:first-child{text-align:left;font-weight:500}
+    tr:last-child td{border-bottom:none}
+    .g{color:#10b981}.r{color:#ef4444}.b{color:#3b82f6}.tot{font-weight:700;background:#f8fafc}
+    .cat-table td{border-bottom:1px solid #f1f5f9}
+    @media print{body{padding:10px 14px}@page{margin:1.2cm 1.5cm}}
+  </style></head><body>
+  <h1>📊 Resoconto Famiglia</h1>
+  <div class="sub">Periodo: <strong>${pLabel}</strong> — Generato il ${new Date().toLocaleDateString('it-IT')}</div>
+  <div class="cards">
+    <div class="card"><div class="lbl">Entrate</div><div class="val g">${fmtP(totE)}</div></div>
+    <div class="card"><div class="lbl">Uscite</div><div class="val r">${fmtP(totS)}</div></div>
+    <div class="card"><div class="lbl">Accantonato</div><div class="val b">${fmtP(totR)}</div></div>
+    <div class="card"><div class="lbl">Residuo</div><div class="val ${saldo>=0?'g':'r'}">${fmtP(saldo)}</div></div>
+  </div>
+  <h2>Entrate · Uscite · Risparmi per mese</h2>
+  ${chartImg?'<img class="chart-img" src="'+chartImg+'" alt="Grafico mensile">':'<p style="color:#94a3b8;font-size:12px;margin-bottom:22px">Grafico non disponibile</p>'}
+  <h2>Riepilogo mensile</h2>
+  <table>
+    <tr><th>Mese</th><th>Entrate</th><th>Uscite</th><th>Risparmi</th><th>Residuo</th></tr>
+    ${Object.entries(byM).map(([m,v])=>{const s=v.entrate-v.spese-v.risparmi;return'<tr><td>'+MESI[parseInt(m)]+'</td><td class="g">'+fmtP(v.entrate)+'</td><td class="r">'+fmtP(v.spese)+'</td><td class="b">'+fmtP(v.risparmi)+'</td><td style="font-weight:700;color:'+(s>=0?'#10b981':'#ef4444')+'">'+fmtP(s)+'</td></tr>';}).join('')}
+    <tr class="tot"><td>Totale</td><td class="g">${fmtP(totE)}</td><td class="r">${fmtP(totS)}</td><td class="b">${fmtP(totR)}</td><td style="color:${saldo>=0?'#10b981':'#ef4444'}">${fmtP(saldo)}</td></tr>
+  </table>
+  <h2>Uscite per categoria</h2>
+  <table class="cat-table">
+    <tr><th style="text-align:left">Categoria / Sottocategoria</th><th>Importo</th></tr>
+    ${catRows(cats,'#ef4444')}
+    <tr class="tot"><td>Totale uscite</td><td>${fmtP(totS)}</td></tr>
+  </table>
+  <h2>Entrate per categoria</h2>
+  <table class="cat-table">
+    <tr><th style="text-align:left">Categoria / Sottocategoria</th><th>Importo</th></tr>
+    ${catRows(catE,'#10b981')}
+    <tr class="tot"><td>Totale entrate</td><td>${fmtP(totE)}</td></tr>
+  </table>
+  <script>window.onload=()=>window.print();<\/script>
+  </body></html>`;
+  const w=window.open('','_blank');
+  if(w){w.document.write(html);w.document.close();}
+  else toast('Abilita i popup per esportare il PDF');
 }
 
 function fmt(v){return'€ '+parseFloat(v||0).toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:2})}
