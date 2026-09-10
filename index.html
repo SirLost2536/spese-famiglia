@@ -1035,6 +1035,7 @@ async function rPortafoglio(el){
 
   // Prezzi
   const prices=await fetchPrezziETF(false);
+  if(Object.keys(prices).length===0&&posizioni.length>0) toast('⚠️ Prezzi non disponibili — riprova con ↺');
 
   // Calcola totali
   let totValore=0,totInvestito=0,prezziMancanti=0;
@@ -1073,7 +1074,7 @@ async function rPortafoglio(el){
     '<div class="card"><div class="lbl">Totale investito</div><div class="val">'+fmt(totInvestito)+'</div><div class="sub">somma acquisti</div></div>'+
     '<div class="card"><div class="lbl">Rendimento</div><div class="val '+(guadagno>=0?'g':'r')+'">'+fmt(guadagno)+'</div><div class="sub">'+(guadagnoPerc>=0?'+':'')+guadagnoPerc.toFixed(1)+'%</div></div>'+
     '</div>'+
-    (prezziMancanti>0?'<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#c2410c">⚠️ Prezzo non disponibile per '+prezziMancanti+' ETF — premi ↺ per riprovare o controlla il ticker</div>':'')+
+    (prezziMancanti>0?'<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:12px;color:#c2410c">⚠️ Prezzo non disponibile per '+prezziMancanti+' ETF. Premi ↺ per riprovare. Se il problema persiste, verifica che il ticker sia esatto come appare su finance.yahoo.com</div>':'')+
     // Lista posizioni
     '<div class="elist" style="margin-bottom:20px">'+
     '<div class="elist-h"><h3>📊 Posizioni</h3></div>';
@@ -1173,15 +1174,24 @@ async function fetchPrezziETF(force=false){
 }
 
 async function fetchSingleETFPrice(ticker){
-  const base='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(ticker)+'?interval=1d&range=2d';
-  const proxy='https://api.allorigins.win/raw?url='+encodeURIComponent(base);
-  for(const url of [base,proxy]){
+  const t=encodeURIComponent(ticker);
+  const yUrl='https://query2.finance.yahoo.com/v8/finance/chart/'+t+'?interval=1d&range=5d';
+  const urls=[
+    'https://corsproxy.io/?'+encodeURIComponent(yUrl),
+    'https://api.allorigins.win/raw?url='+encodeURIComponent(yUrl),
+    'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(yUrl),
+    yUrl,
+  ];
+  for(const url of urls){
     try{
-      const res=await fetch(url,{signal:AbortSignal.timeout(9000)});
+      const ctrl=new AbortController();
+      const tid=setTimeout(()=>ctrl.abort(),10000);
+      const res=await fetch(url,{signal:ctrl.signal});
+      clearTimeout(tid);
       if(!res.ok) continue;
       const data=await res.json();
       const meta=data?.chart?.result?.[0]?.meta;
-      const price=meta?.regularMarketPrice??meta?.previousClose;
+      const price=meta?.regularMarketPrice??meta?.previousClose??meta?.chartPreviousClose;
       if(price&&price>0) return parseFloat(price);
     }catch(e){continue;}
   }
