@@ -65,7 +65,10 @@ input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 2px rgba(5
 .cc{background:var(--card);border-radius:12px;border:1px solid var(--border);padding:18px}
 .cc h3{font-size:14px;font-weight:600;margin-bottom:14px}
 .congrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:20px}
-.concard{background:var(--card);border-radius:12px;border:1px solid var(--border);padding:18px}
+.concard{background:var(--card);border-radius:12px;border:2px solid var(--border);padding:18px;cursor:pointer;transition:all .18s}
+.concard:hover{border-color:var(--primary);box-shadow:0 4px 16px rgba(59,130,246,.12)}
+.concard.cc-sel{border-color:var(--primary);box-shadow:0 0 0 3px rgba(59,130,246,.15)}
+.concard.cc-dim{opacity:.4}
 .concard .tipo{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:3px}
 .concard .nome{font-size:17px;font-weight:700;margin-bottom:12px}
 .risp-row{display:flex;gap:6px;margin-top:10px}
@@ -527,25 +530,49 @@ function setConfCustom(){
 /* CONTI */
 function rCont(el){
   const rispC=D.conti.filter(c=>c.tipo==='risparmio');
+  const todayStr=cy+'-'+String(cm).padStart(2,'0')+'-01';
   el.innerHTML=
-  '<div class="mbar"><button class="ico-btn" onclick="chM(-1)">◀</button><h2>💰 Conti Deposito · '+MESI[cm]+' '+cy+'</h2><button class="ico-btn" onclick="chM(1)">▶</button></div>'+
-  (rispC.length===0?
-    '<div class="fcard" style="text-align:center;padding:32px"><p style="font-size:13px;color:var(--muted)">Nessun conto deposito. Aggiungine uno qui sotto.</p></div>'
-    :
-    '<div class="congrid">'+
-    rispC.map(c=>{
-      const risp=D.risp.find(r=>r.contoId===c.id);
-      return '<div class="concard">'+
-        '<div class="tipo">Conto deposito</div>'+
-        '<div class="nome" style="color:'+(c.colore||'#5856D6')+'">'+c.nome+'</div>'+
-        '<div style="font-size:11px;color:var(--muted);margin-bottom:2px">Accantonato '+MESI[cm]+'</div>'+
-        '<div style="font-size:26px;font-weight:700;color:var(--green);margin-bottom:10px">'+(risp?fmt(risp.importo):'€ 0,00')+'</div>'+
-        '<div class="risp-row"><input type="number" id="ri-'+c.id+'" placeholder="Importo" step="0.01" value="'+(risp?risp.importo:'')+'"><button class="btn btn-g btn-sm" onclick="saveR(\''+c.id+'\',\''+(risp?.id||'')+'\')">Salva</button></div>'+
-        '<div style="margin-top:10px"><button class="btn btn-d btn-sm" onclick="delC(\''+c.id+'\')">Elimina conto</button></div>'+
-        '</div>';
-    }).join('')+
+  '<div class="mbar"><h2>💰 Conti Risparmio</h2>'+
+  '<button class="ico-btn" onclick="loadRispTrend()" title="Aggiorna">↺</button></div>'+
+  // Cards
+  (rispC.length===0
+    ?'<div class="fcard" style="text-align:center;padding:32px"><p style="font-size:13px;color:var(--muted)">Nessun conto deposito. Aggiungine uno qui sotto.</p></div>'
+    :'<div class="congrid">'+
+      rispC.map(c=>{
+        const idx=rispC.indexOf(c);
+        return '<div class="concard" id="cc-'+c.id+'" onclick="selRispConto(\''+c.id+'\')">'+
+          '<div class="tipo">Conto deposito</div>'+
+          '<div class="nome" style="color:'+(c.colore||'#5856D6')+'">'+c.nome+'</div>'+
+          '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">Totale accantonato</div>'+
+          '<div id="cc-tot-'+c.id+'" style="font-size:26px;font-weight:700;color:var(--green)">…</div>'+
+          '<div id="cc-last-'+c.id+'" style="font-size:11px;color:var(--muted);margin-top:6px"></div>'+
+          '<div style="margin-top:12px;font-size:12px;color:var(--primary);font-weight:600">Vedi movimenti →</div>'+
+          '</div>';
+      }).join('')+
     '</div>'
   )+
+  // Grafico cumulativo
+  '<div class="fcard">'+
+  '<h3 style="margin-bottom:12px">📈 Andamento cumulativo</h3>'+
+  '<div id="risp-trend"><div class="spin">Caricamento…</div></div>'+
+  '</div>'+
+  // Movimenti (nascosti, mostrati su click)
+  '<div class="fcard" id="risp-movs" style="display:none">'+
+  '<div id="risp-movs-inner"></div>'+
+  '</div>'+
+  // Form nuovo accantonamento
+  '<div class="fcard">'+
+  '<h3 style="margin-bottom:12px">➕ Nuovo accantonamento</h3>'+
+  '<div class="fgrid">'+
+  '<div class="fg"><label>Data</label><input type="date" id="r-d" value="'+todayStr+'"></div>'+
+  '<div class="fg"><label>Importo (€)</label><input type="number" id="r-i" placeholder="0.00" step="0.01"></div>'+
+  '<div class="fg"><label>Conto</label><select id="r-c">'+
+    (rispC.length===0?'<option value="">— nessun conto —</option>':rispC.map(c=>'<option value="'+c.id+'" data-nome="'+c.nome+'">'+c.nome+'</option>').join(''))+
+  '</select></div>'+
+  '</div>'+
+  '<div style="margin-top:12px"><button class="btn btn-g" onclick="saveRispCont()">💰 Salva accantonamento</button></div>'+
+  '</div>'+
+  // Aggiungi conto
   '<div class="fcard">'+
   '<h3 style="margin-bottom:12px">➕ Aggiungi conto deposito</h3>'+
   '<div class="fgrid">'+
@@ -553,96 +580,158 @@ function rCont(el){
   '<div class="fg"><label>Colore</label><input type="color" id="nc-c" value="#5856D6"></div>'+
   '</div>'+
   '<div style="margin-top:12px"><button class="btn btn-p" onclick="addCDeposito()">Aggiungi</button></div>'+
-  '</div>'+
-  '<div class="fcard">'+
-  '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'+
-  '<h3>📈 Andamento conti deposito</h3>'+
-  '<button class="btn btn-p btn-sm" onclick="loadRispTrend()">↺ Aggiorna</button>'+
-  '</div>'+
-  '<div id="risp-trend"><div class="spin">Caricamento storico…</div></div>'+
   '</div>';
   loadRispTrend();
 }
 
 async function loadRispTrend(){
   const rispC=D.conti.filter(c=>c.tipo==='risparmio');
-  if(rispC.length===0){toast('Nessun conto risparmio/deposito configurato');return;}
+  if(rispC.length===0) return;
   const trendEl=document.getElementById('risp-trend');
-  if(!trendEl)return;
-  trendEl.innerHTML='<div class="spin">Caricamento storico…</div>';
-  const [r1,r2]=await Promise.all([
-    db.collection('risparmi').where('anno','==',cy).get(),
-    db.collection('risparmi').where('anno','==',cy-1).get(),
-  ]);
-  const allR=[...r1.docs,...r2.docs].map(d=>({id:d.id,...d.data()}));
-  // build 24-month timeline: Jan(cy-1)…Dec(cy)
-  const months=[];
-  for(let m=1;m<=12;m++)months.push({y:cy-1,m});
-  for(let m=1;m<=12;m++)months.push({y:cy,m});
-  const labels=months.map(({y,m})=>MESI[m].substring(0,3)+' '+String(y).slice(2));
+  if(!trendEl) return;
+  trendEl.innerHTML='<div class="spin">Caricamento…</div>';
+
+  // Carica TUTTI i risparmi
+  const snap=await db.collection('risparmi').get();
+  const allR=snap.docs.map(d=>({id:d.id,...d.data()}));
+
+  // Salva movimenti per click
+  window._rispMovs={};
+  rispC.forEach(c=>{
+    window._rispMovs[c.id]=allR.filter(r=>r.contoId===c.id).sort((a,b)=>(b.anno*12+b.mese)-(a.anno*12+a.mese));
+  });
+
+  // Aggiorna cards con totali
   const palette=['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'];
+  rispC.forEach((c,idx)=>{
+    const movs=window._rispMovs[c.id];
+    const tot=movs.reduce((s,r)=>s+parseFloat(r.importo),0);
+    const last=movs[0];
+    const totEl=document.getElementById('cc-tot-'+c.id);
+    const lastEl=document.getElementById('cc-last-'+c.id);
+    if(totEl) totEl.textContent=fmt(tot);
+    if(lastEl) lastEl.textContent=last?'Ultimo: '+fmt(parseFloat(last.importo))+' · '+MESI[last.mese]+' '+last.anno:'Nessun accantonamento';
+  });
+
+  if(allR.length===0){
+    trendEl.innerHTML='<p style="font-size:13px;color:var(--muted);padding:12px 0">Nessun accantonamento registrato.</p>';
+    return;
+  }
+
+  // Range mesi: dal primo record fino ad oggi
+  const minY=Math.min(...allR.map(r=>r.anno));
+  const months=[];
+  for(let y=minY;y<=cy;y++){
+    for(let mo=1;mo<=12;mo++){
+      if(y===cy&&mo>cm) break;
+      months.push({y,mo});
+    }
+  }
+  const labels=months.map(({y,mo})=>MESI[mo].substring(0,3)+' '+String(y).slice(2));
+
+  // Dataset cumulativo per ogni conto
   const datasets=rispC.map((c,idx)=>{
     const color=c.colore||palette[idx%palette.length];
-    const data=months.map(({y,m})=>{
-      const r=allR.find(r=>r.contoId===c.id&&r.anno===y&&r.mese===m);
-      return r!=null?parseFloat(r.importo):null;
+    const movs=allR.filter(r=>r.contoId===c.id).sort((a,b)=>(a.anno*12+a.mese)-(b.anno*12+b.mese));
+    let cum=0;
+    const data=months.map(({y,mo})=>{
+      const r=movs.find(r=>r.anno===y&&r.mese===mo);
+      if(r) cum+=parseFloat(r.importo);
+      return cum>0?cum:null;
     });
-    return{label:c.nome,data,backgroundColor:color+'22',borderColor:color,borderWidth:2,tension:0.3,pointRadius:4,fill:false,spanGaps:true};
+    return{label:c.nome,data,borderColor:color,backgroundColor:color+'18',borderWidth:2.5,tension:0.35,pointRadius:3,fill:true,spanGaps:true};
   });
-  // summary rows
-  const rows=rispC.map((c,idx)=>{
-    const color=c.colore||palette[idx%palette.length];
-    const thisY=allR.filter(r=>r.contoId===c.id&&r.anno===cy).reduce((s,r)=>s+parseFloat(r.importo),0);
-    const prevY=allR.filter(r=>r.contoId===c.id&&r.anno===cy-1).reduce((s,r)=>s+parseFloat(r.importo),0);
-    const tot=thisY+prevY;
-    const last=allR.filter(r=>r.contoId===c.id).sort((a,b)=>(b.anno*12+b.mese)-(a.anno*12+a.mese))[0];
-    return'<div class="ei"><div class="dot" style="background:'+color+'"></div>'+
-    '<div class="ei-info"><div class="d">'+c.nome+'</div>'+
-    '<div class="m">'+cy-1+': '+fmt(prevY)+' &nbsp;·&nbsp; '+cy+': '+fmt(thisY)+'</div></div>'+
-    '<div style="text-align:right;flex-shrink:0"><div style="font-size:15px;font-weight:700;color:'+color+'">'+fmt(last?parseFloat(last.importo):0)+'/mese</div>'+
-    '<div style="font-size:11px;color:var(--muted)">ultimo accantonamento</div></div></div>';
-  }).join('');
-  // movements grouped by account
-  const movSections=rispC.map(c=>{
-    const color=c.colore||palette[rispC.indexOf(c)%palette.length];
-    const cMovs=allR.filter(r=>r.contoId===c.id).sort((a,b)=>(b.anno*12+b.mese)-(a.anno*12+a.mese));
-    if(cMovs.length===0)return '';
-    const totale=cMovs.reduce((s,r)=>s+parseFloat(r.importo),0);
-    return '<div class="elist" style="margin-bottom:12px">'+
-      '<div class="elist-h">'+
-      '<h3 style="color:'+color+'">'+c.nome+'</h3>'+
-      '<span style="font-size:12px;color:var(--muted)">'+cMovs.length+' voci · tot. '+fmt(totale)+'</span>'+
-      '</div>'+
-      cMovs.map(r=>'<div class="ei">'+
-        '<div class="dot" style="background:'+color+'"></div>'+
-        '<div class="ei-info">'+
-        '<div class="d">'+MESI[r.mese]+' '+r.anno+'</div>'+
-        '</div>'+
-        '<div style="text-align:right;flex-shrink:0">'+
-        '<div style="font-size:15px;font-weight:700;color:var(--green)">'+fmt(parseFloat(r.importo))+'</div>'+
-        '<button class="btn btn-d btn-sm" style="margin-top:4px;font-size:11px;padding:3px 8px" onclick="delRisp(\''+r.id+'\')">Elimina</button>'+
-        '</div>'+
-        '</div>'
-      ).join('')+
-      '</div>';
-  }).join('');
 
   if(charts.rispTrend){try{charts.rispTrend.destroy()}catch(e){}}
-  trendEl.innerHTML=
-  '<div style="margin-bottom:14px"><canvas id="rt-chart" height="120"></canvas></div>'+
-  '<div class="elist" style="margin-bottom:16px">'+
-  '<div class="elist-h"><h3>Riepilogo conti deposito — '+String(cy-1)+' / '+cy+'</h3></div>'+
-  rows+
-  '</div>'+
-  (movSections||'<div class="empty" style="background:var(--card);border-radius:12px;border:1px solid var(--border)">Nessun movimento registrato</div>');
+  trendEl.innerHTML='<canvas id="rt-chart" height="130"></canvas>';
   charts.rispTrend=new Chart(document.getElementById('rt-chart'),{
     type:'line',
     data:{labels,datasets},
     options:{
-      plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:8}}},
-      scales:{y:{ticks:{callback:v=>'€'+v.toLocaleString('it-IT')},beginAtZero:true}}
+      plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:10,usePointStyle:true}}},
+      scales:{y:{ticks:{callback:v=>'€'+v.toLocaleString('it-IT')},beginAtZero:true,grid:{color:'rgba(0,0,0,.05)'}},x:{grid:{display:false}}}
     }
   });
+}
+
+function selRispConto(id){
+  const rispC=D.conti.filter(c=>c.tipo==='risparmio');
+  const palette=['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'];
+  // Highlight / dim cards
+  rispC.forEach(c=>{
+    const el=document.getElementById('cc-'+c.id);
+    if(!el) return;
+    if(c.id===id){el.classList.add('cc-sel');el.classList.remove('cc-dim');}
+    else{el.classList.remove('cc-sel');el.classList.add('cc-dim');}
+  });
+  // Reset se già selezionato
+  const movsEl=document.getElementById('risp-movs');
+  const movsInner=document.getElementById('risp-movs-inner');
+  if(!movsEl||!movsInner) return;
+  const conto=rispC.find(c=>c.id===id);
+  if(!conto) return;
+  const idx=rispC.indexOf(conto);
+  const color=conto.colore||palette[idx%palette.length];
+  const movs=(window._rispMovs||{})[id]||[];
+  const tot=movs.reduce((s,r)=>s+parseFloat(r.importo),0);
+  movsEl.style.display='block';
+  movsInner.innerHTML=
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">'+
+    '<h3 style="color:'+color+'">'+conto.nome+'</h3>'+
+    '<div style="display:flex;align-items:center;gap:10px">'+
+    '<span style="font-size:12px;color:var(--muted)">'+movs.length+' voci · tot. '+fmt(tot)+'</span>'+
+    '<button class="btn btn-sm" style="background:var(--bg);border:1px solid var(--border)" onclick="chiudiMovs()">✕ Chiudi</button>'+
+    '</div></div>'+
+    (movs.length===0
+      ?'<p style="font-size:13px;color:var(--muted)">Nessun accantonamento registrato.</p>'
+      :'<div class="elist">'+
+        movs.map(r=>'<div class="ei">'+
+          '<div class="dot" style="background:'+color+'"></div>'+
+          '<div class="ei-info"><div class="d">'+MESI[r.mese]+' '+r.anno+'</div></div>'+
+          '<div style="text-align:right;flex-shrink:0">'+
+          '<div style="font-size:15px;font-weight:700;color:var(--green)">'+fmt(parseFloat(r.importo))+'</div>'+
+          '<button class="btn btn-d btn-sm" style="margin-top:4px;font-size:11px;padding:3px 8px" onclick="delRisp(\''+r.id+'\')">Elimina</button>'+
+          '</div></div>'
+        ).join('')+
+      '</div>'
+    )+
+    '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">'+
+    '<button class="btn btn-d btn-sm" onclick="delC(\''+id+'\')">🗑️ Elimina conto</button>'+
+    '</div>';
+  movsEl.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function chiudiMovs(){
+  const movsEl=document.getElementById('risp-movs');
+  if(movsEl) movsEl.style.display='none';
+  const rispC=D.conti.filter(c=>c.tipo==='risparmio');
+  rispC.forEach(c=>{
+    const el=document.getElementById('cc-'+c.id);
+    if(el){el.classList.remove('cc-sel','cc-dim');}
+  });
+}
+
+async function saveRispCont(){
+  const dv=document.getElementById('r-d').value;
+  const imp=parseFloat(document.getElementById('r-i').value);
+  const sel=document.getElementById('r-c');
+  const contoId=sel?.value;
+  const contoNome=sel?.options[sel.selectedIndex]?.dataset?.nome||'';
+  if(!dv||!imp||imp<=0){toast('Inserisci data e importo');return}
+  if(!contoId){toast('Seleziona un conto deposito');return}
+  const dt=new Date(dv);
+  const y=dt.getFullYear(),m=dt.getMonth()+1;
+  const ex=await db.collection('risparmi').where('contoId','==',contoId).where('anno','==',y).where('mese','==',m).get();
+  if(!ex.empty){
+    await db.collection('risparmi').doc(ex.docs[0].id).update({importo:imp,data:dv});
+    toast('Risparmio aggiornato!');
+  } else {
+    await db.collection('risparmi').add({data:dv,importo:imp,contoId,contoNome,anno:y,mese:m});
+    toast('Risparmio salvato!');
+  }
+  document.getElementById('r-i').value='';
+  await load();
+  loadRispTrend();
 }
 
 /* IMPOSTAZIONI */
