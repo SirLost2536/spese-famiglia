@@ -57,8 +57,15 @@ input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 2px rgba(5
 .ei-info .m{font-size:11px;color:var(--muted);margin-top:1px}
 .ei-amt{font-size:15px;font-weight:600;flex-shrink:0}
 .ei-amt.r{color:var(--red)}.ei-amt.g{color:var(--green)}.ei-amt.p{color:var(--purple)}
-.del-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:14px;padding:4px;opacity:.5;flex-shrink:0}
+.del-btn,.edit-btn{background:none;border:none;cursor:pointer;font-size:15px;padding:5px;opacity:.5;flex-shrink:0;color:var(--muted)}
 .del-btn:hover{opacity:1;color:var(--red)}
+.edit-btn:hover{opacity:1;color:var(--primary)}
+/* Modal bottom-sheet */
+.modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:600;display:none;align-items:flex-end;justify-content:center}
+.modal-ov.open{display:flex}
+.modal-sheet{background:var(--card);border-radius:20px 20px 0 0;width:100%;max-width:640px;padding:20px 20px calc(20px + env(safe-area-inset-bottom));max-height:88vh;overflow-y:auto}
+.modal-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 18px}
+@media(min-width:640px){.modal-sheet{border-radius:16px;margin:auto;margin-bottom:0}}
 .empty{padding:36px;text-align:center;color:var(--muted);font-size:13px}
 .cgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
 @media(max-width:600px){.cgrid{grid-template-columns:1fr}}
@@ -193,6 +200,28 @@ input:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 2px rgba(5
   <a id="bn-sett" onclick="go('sett')"><span class="bi">⚙️</span>Impostaz.</a>
 </nav>
 <div id="toast"></div>
+
+<!-- Modal modifica movimento -->
+<div class="modal-ov" id="edit-modal" onclick="if(event.target===this)closeEditMov()">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <h3 id="em-title" style="font-size:16px;margin-bottom:18px">✏️ Modifica movimento</h3>
+    <div class="fgrid" style="grid-template-columns:1fr 1fr;gap:10px">
+      <div class="fg"><label>Data</label><input type="date" id="em-data"></div>
+      <div class="fg"><label>Importo (€)</label><input type="number" id="em-importo" step="0.01" min="0"></div>
+    </div>
+    <div class="fgrid" style="grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+      <div class="fg"><label>Categoria</label><select id="em-cat" onchange="emUpdateSub()"></select></div>
+      <div class="fg"><label>Sottocategoria</label><select id="em-sub"></select></div>
+    </div>
+    <div class="fg" style="margin-top:10px"><label>Descrizione (opz.)</label><input type="text" id="em-desc" placeholder="es. Supermercato Esselunga"></div>
+    <div style="display:flex;gap:10px;margin-top:20px">
+      <button class="btn btn-p" style="flex:1" onclick="saveEditMov()">💾 Salva modifiche</button>
+      <button class="btn" style="background:var(--bg);border:1px solid var(--border);min-width:90px" onclick="closeEditMov()">Annulla</button>
+    </div>
+  </div>
+</div>
+
 <script>
 firebase.initializeApp({
   apiKey:"AIzaSyA8-8tBLfBcR--EVwm1TbjnPN1-IW8veSU",
@@ -378,7 +407,7 @@ function rDash(el){
   (allVoci.length===0?'<div class="empty">Nessun movimento registrato</div>':
     allVoci.map(s=>{
       const isE=s._t==='e';
-      return'<div class="ei"><div class="dot" style="background:'+(s.categoriaColore||'#94a3b8')+'"></div><div class="ei-info"><div class="d">'+(s.descrizione||s.sottocategoria||s.categoriaNome||'Movimento')+'</div><div class="m">'+fdate(s.data)+' · '+(s.categoriaIcona||'')+' '+(s.categoriaNome||'')+(s.sottocategoria?' › '+s.sottocategoria:'')+(s.contoNome?' · '+s.contoNome:'')+'</div></div><div class="ei-amt '+(isE?'g':'r')+'">'+(isE?'+':'-')+fmt(s.importo)+'</div><button class="del-btn" onclick="'+(isE?'delE(\''+s.id+'\')':'delS(\''+s.id+'\')')+'">✕</button></div>';
+      return'<div class="ei"><div class="dot" style="background:'+(s.categoriaColore||'#94a3b8')+'"></div><div class="ei-info"><div class="d">'+(s.descrizione||s.sottocategoria||s.categoriaNome||'Movimento')+'</div><div class="m">'+fdate(s.data)+' · '+(s.categoriaIcona||'')+' '+(s.categoriaNome||'')+(s.sottocategoria?' › '+s.sottocategoria:'')+(s.contoNome?' · '+s.contoNome:'')+'</div></div><div class="ei-amt '+(isE?'g':'r')+'">'+(isE?'+':'-')+fmt(s.importo)+'</div><button class="edit-btn" onclick="openEditMov(\''+s.id+'\',\''+(isE?'e':'s')+'\')">✎</button><button class="del-btn" onclick="'+(isE?'delE(\''+s.id+'\')':'delS(\''+s.id+'\')')+'">✕</button></div>';
     }).join(''))+
   '</div>';
 }
@@ -699,13 +728,18 @@ async function loadRispTrend(){
   });
 
   if(charts.rispTrend){try{charts.rispTrend.destroy()}catch(e){}}
-  trendEl.innerHTML='<canvas id="rt-chart" height="130"></canvas>';
+  trendEl.innerHTML='<div style="position:relative;height:260px"><canvas id="rt-chart"></canvas></div>';
   charts.rispTrend=new Chart(document.getElementById('rt-chart'),{
     type:'line',
     data:{labels,datasets},
     options:{
-      plugins:{legend:{position:'bottom',labels:{font:{size:11},padding:10,usePointStyle:true}}},
-      scales:{y:{ticks:{callback:v=>'€'+v.toLocaleString('it-IT')},beginAtZero:true,grid:{color:'rgba(0,0,0,.05)'}},x:{grid:{display:false}}}
+      responsive:true,
+      maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom',labels:{font:{size:12},padding:12,usePointStyle:true}}},
+      scales:{
+        y:{ticks:{callback:v=>'€'+v.toLocaleString('it-IT'),font:{size:11}},beginAtZero:true,grid:{color:'rgba(0,0,0,.05)'}},
+        x:{grid:{display:false},ticks:{font:{size:10},maxRotation:45}}
+      }
     }
   });
 }
@@ -925,6 +959,62 @@ async function addT(){
 
 async function delS(id){if(!confirm('Eliminare questa uscita?'))return;await db.collection('spese').doc(id).delete();await load();go(page)}
 async function delE(id){if(!confirm('Eliminare questa entrata?'))return;await db.collection('entrate').doc(id).delete();await load();go(page)}
+
+/* ===== MODIFICA MOVIMENTO ===== */
+let _emId=null,_emType=null;
+function openEditMov(id,type){
+  _emId=id;_emType=type;
+  const arr=type==='e'?D.entrate:D.spese;
+  const mov=arr.find(m=>m.id===id);
+  if(!mov){toast('Movimento non trovato');return;}
+  document.getElementById('em-title').textContent=type==='e'?'✏️ Modifica entrata':'✏️ Modifica uscita';
+  document.getElementById('em-data').value=mov.data||'';
+  document.getElementById('em-importo').value=mov.importo||'';
+  document.getElementById('em-desc').value=mov.descrizione||'';
+  // Popola categorie
+  const cats=type==='e'?D.catE:D.cat;
+  const cs=document.getElementById('em-cat');
+  cs.innerHTML=cats.map(c=>'<option value="'+c.id+'" data-nome="'+(c.nome||'')+'" data-colore="'+(c.colore||'')+'" data-icona="'+(c.icona||'')+'">'+(c.icona||'')+' '+c.nome+'</option>').join('');
+  if(mov.categoriaId)cs.value=mov.categoriaId;
+  emUpdateSub(mov.sottocategoria);
+  document.getElementById('edit-modal').classList.add('open');
+}
+function emUpdateSub(presel){
+  const cs=document.getElementById('em-cat');
+  const cats=_emType==='e'?D.catE:D.cat;
+  const cat=cats.find(c=>c.id===cs.value);
+  const subs=cat?.sottocategorie||[];
+  const ss=document.getElementById('em-sub');
+  ss.innerHTML='<option value="">— nessuna —</option>'+subs.map(s=>'<option value="'+s+'">'+s+'</option>').join('');
+  if(presel)ss.value=presel;
+}
+async function saveEditMov(){
+  const data=document.getElementById('em-data').value;
+  const importo=parseFloat(document.getElementById('em-importo').value);
+  const desc=document.getElementById('em-desc').value.trim();
+  if(!data||!importo||importo<=0){toast('Inserisci data e importo');return;}
+  const cs=document.getElementById('em-cat');
+  const catId=cs.value;
+  if(!catId){toast('Seleziona una categoria');return;}
+  const catOpt=cs.options[cs.selectedIndex];
+  const dt=new Date(data);
+  const upd={
+    data,importo,
+    mese:dt.getMonth()+1,anno:dt.getFullYear(),
+    categoriaId:catId,
+    categoriaNome:catOpt?.dataset?.nome||'',
+    categoriaColore:catOpt?.dataset?.colore||'#94a3b8',
+    categoriaIcona:catOpt?.dataset?.icona||'',
+    sottocategoria:document.getElementById('em-sub').value,
+  };
+  if(desc)upd.descrizione=desc;
+  const col=_emType==='e'?'entrate':'spese';
+  await db.collection(col).doc(_emId).update(upd);
+  toast('Salvato!');
+  closeEditMov();
+  await load();go(page);
+}
+function closeEditMov(){document.getElementById('edit-modal').classList.remove('open');}
 async function delT(id){if(!confirm('Eliminare questo trasferimento?'))return;await db.collection('trasferimenti').doc(id).delete();await load();go(page)}
 
 async function addRispDash(){
