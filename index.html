@@ -1006,7 +1006,7 @@ async function saveRispCont(){
 
 /* PORTAFOGLIO ETF */
 let etfEditId=null;
-async function rPortafoglio(el){
+async function rPortafoglio(el,forceRefresh=false){
   const todayD=new Date();
   const todayStr=todayD.getFullYear()+'-'+String(todayD.getMonth()+1).padStart(2,'0')+'-'+String(todayD.getDate()).padStart(2,'0');
   el.innerHTML=
@@ -1024,7 +1024,7 @@ async function rPortafoglio(el){
 
   // Tickers unici già disponibili senza rileggere Firebase
   const tickersUnici=[...new Set(acquisti.map(a=>a.ticker).filter(Boolean))];
-  const prices=await fetchPrezziETF(tickersUnici,false);
+  const prices=await fetchPrezziETF(tickersUnici,forceRefresh);
 
   // Raggruppa per broker → ticker
   const byBroker={};
@@ -1259,8 +1259,9 @@ async function rPortafoglio(el){
 }
 
 async function ptfRefresh(){
-  try{const c=JSON.parse(localStorage.getItem('etf_prices_cache')||'{}');c.date='';localStorage.setItem('etf_prices_cache',JSON.stringify(c));}catch(e){}
-  await rPortafoglio(document.getElementById('main'));
+  // Cancella cache locale e forza refresh da rete + Firebase
+  try{localStorage.removeItem('etf_prices_cache');}catch(e){}
+  await rPortafoglio(document.getElementById('main'),true);
 }
 
 async function fetchPrezziETF(tickers=[],force=false){
@@ -1268,17 +1269,35 @@ async function fetchPrezziETF(tickers=[],force=false){
   const todayStr=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
   let cache={};
   try{cache=JSON.parse(localStorage.getItem('etf_prices_cache')||'{}');}catch(e){}
-  if(!force&&cache.date===todayStr&&cache.prices&&Object.keys(cache.prices).length>0) return cache.prices;
+
+  if(!force){
+    // 1. localStorage aggiornato oggi? usa quello (veloce)
+    if(cache.date===todayStr&&cache.prices&&Object.keys(cache.prices).length>0) return cache.prices;
+    // 2. Firebase aggiornato oggi? sincronizza cross-device
+    try{
+      const fb=await db.collection('etf_prezzi').doc('cache').get();
+      if(fb.exists){
+        const d=fb.data();
+        if(d.date===todayStr&&d.prices&&Object.keys(d.prices).length>0){
+          try{localStorage.setItem('etf_prices_cache',JSON.stringify(d));}catch(e){}
+          return d.prices;
+        }
+      }
+    }catch(e){}
+  }
 
   if(tickers.length===0) return cache.prices||{};
 
-  // Fetch in parallelo — più veloce
+  // 3. Fetch da Yahoo Finance in parallelo
   const results=await Promise.allSettled(tickers.map(async tk=>({tk,price:await fetchSingleETFPrice(tk)})));
   const prices={...(cache.prices||{})};
   results.forEach(r=>{if(r.status==='fulfilled'&&r.value.price!==null) prices[r.value.tk]=r.value.price;});
 
   const upd=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
-  try{localStorage.setItem('etf_prices_cache',JSON.stringify({date:todayStr,prices,updated:upd}));}catch(e){}
+  const cacheObj={date:todayStr,prices,updated:upd};
+  // Salva su localStorage E Firebase → tutti i dispositivi sincronizzati
+  try{localStorage.setItem('etf_prices_cache',JSON.stringify(cacheObj));}catch(e){}
+  try{db.collection('etf_prezzi').doc('cache').set(cacheObj);}catch(e){} // fire-and-forget
   return prices;
 }
 
@@ -1314,16 +1333,20 @@ async function fetchSingleETFPrice(ticker){
 function saveManualPrice(ticker,tickId){
   const val=parseFloat(document.getElementById('mprice-'+tickId)?.value||0);
   if(!val||val<=0){toast('Inserisci un prezzo valido');return;}
-  try{
-    const c=JSON.parse(localStorage.getItem('etf_prices_cache')||'{}');
-    if(!c.prices) c.prices={};
-    c.prices[ticker]=val;
-    const now=new Date();
-    c.date=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
-    c.updated=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
-    localStorage.setItem('etf_prices_cache',JSON.stringify(c));
-  }catch(e){}
-  toast('Prezzo salvato!');
+  (async()=>{
+    try{
+      const c=JSON.parse(localStorage.getItem('etf_prices_cache')||'{}');
+      if(!c.prices) c.prices={};
+      c.prices[ticker]=val;
+      const now=new Date();
+      c.date=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+      c.updated=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+      // Salva su localStorage E Firebase (sync cross-device)
+      localStorage.setItem('etf_prices_cache',JSON.stringify(c));
+      await db.collection('etf_prezzi').doc('cache').set(c);
+    }catch(e){}
+  })();
+  toast('Prezzo salvato su tutti i dispositivi!');
   contTab='portafoglio';go('cont');
 }
 
